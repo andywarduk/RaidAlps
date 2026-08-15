@@ -397,6 +397,12 @@ body{
   pointer-events:none;
   transition:opacity 180ms ease;
 }
+.col-label.tap-active{
+  /* raise the whole label (and its elevation pill along with it) above
+     sibling labels — otherwise a neighbour later in the DOM can paint
+     over the reveal, especially in tightly-packed clusters */
+  z-index:1;
+}
 .col-label.tap-active .col-label-alt{
   opacity:1;
 }
@@ -404,6 +410,9 @@ body{
   /* real mouse hover only — on touch, :hover can linger stickily after a
      tap (notoriously on iOS Safari) instead of behaving like a proper
      hover, so touch relies solely on the explicit tap-active toggle above */
+  .col-label:hover{
+    z-index:1;
+  }
   .col-label:hover .col-label-alt{
     opacity:1;
   }
