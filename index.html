@@ -187,6 +187,11 @@ body{
 }
 
 .detail-card{
+  /* display:none by default rather than just opacity:0 — otherwise this
+     still reserves its full padded box (and, once a day's been viewed,
+     its stale content height) in the grid even in the overview, leaving
+     a large empty gap above the day pills where nothing is showing */
+  display:none;
   pointer-events:auto;
   border:1px solid var(--hairline);
   background:var(--panel);
@@ -199,6 +204,7 @@ body{
   transition:opacity 220ms ease, transform 220ms ease;
 }
 .detail-card.visible{
+  display:block;
   opacity:1;
   transform:translateY(0);
 }
@@ -435,7 +441,7 @@ body{
   <div class="hud-top">
     <div class="masthead">
       <div class="eyebrow">Cycling Expedition &middot; 26 Jul&ndash;1 Aug 2026</div>
-      <h1 id="page-title" class="title">Raid Alps</h1>
+      <h1 class="title">Raid Alps</h1>
       <p class="sub">Seven climbing days across the French Alps &mdash; from Thonon-les-Bains to Nice &mdash; 26 named cols and 16,106&nbsp;m of climbing in one week.</p>
     </div>
     <div id="stat-rail" class="stat-rail"></div>
@@ -1842,13 +1848,6 @@ body{
     var el = document.getElementById("hud-bottom");
     if (!el) return 0;
     var h = el.getBoundingClientRect().height;
-    // the detail card keeps its last content (just invisible via opacity)
-    // between visits rather than clearing on hide, so exclude its height
-    // whenever it isn't the one currently meant to be showing
-    var card = document.getElementById("detail-card");
-    if (card && !card.classList.contains("visible")){
-      h -= card.getBoundingClientRect().height;
-    }
     if (h <= 0) return 0;
     return clamp(h / window.innerHeight + 0.03, 0, 0.5);
   }
@@ -1993,7 +1992,6 @@ body{
   // ---- focus / overview transitions ----------------------------------------
   var activeLegId = null;
   var exagNote = document.getElementById("exag-note");
-  var pageTitle = document.getElementById("page-title");
 
   // "scroll to zoom" / "click" describe a mouse, not a finger — swap in
   // touch-appropriate wording on devices whose primary pointer is coarse
@@ -2060,7 +2058,6 @@ body{
     scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
 
     exagNote.textContent = "elevation exaggerated ×" + Math.round(ex);
-    pageTitle.textContent = "Raid Alps — " + leg.label;
   }
 
   function goOverview(){
@@ -2088,7 +2085,6 @@ body{
     activeLegId = null;
     setActiveChip(null);
     exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
-    pageTitle.textContent = "Raid Alps";
   }
 
   function currentOpacity(group){
