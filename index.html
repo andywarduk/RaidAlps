@@ -364,8 +364,16 @@ body{
   pointer-events:none;
   transition:opacity 180ms ease;
 }
-.col-label:hover .col-label-alt{
+.col-label.tap-active .col-label-alt{
   opacity:1;
+}
+@media (hover:hover) and (pointer:fine){
+  /* real mouse hover only — on touch, :hover can linger stickily after a
+     tap (notoriously on iOS Safari) instead of behaving like a proper
+     hover, so touch relies solely on the explicit tap-active toggle above */
+  .col-label:hover .col-label-alt{
+    opacity:1;
+  }
 }
 
 @media (max-width:640px){
@@ -1612,6 +1620,36 @@ body{
     hoverMouseX = -1e9; hoverMouseY = -1e9;
   });
 
+  // touch has no hover state at all, so tapping a marker toggles its label
+  // instead — same nearest-marker search as the hover case above, just
+  // triggered on tap rather than continuous mouse position. A movement
+  // threshold keeps this from firing at the end of a one-finger drag used
+  // to orbit the camera.
+  var tappedMarker = null;
+  var pointerDownPos = null;
+  renderer.domElement.addEventListener("pointerdown", function(e){
+    pointerDownPos = { x: e.clientX, y: e.clientY };
+  });
+  renderer.domElement.addEventListener("pointerup", function(e){
+    var start = pointerDownPos;
+    pointerDownPos = null;
+    if (!start || activeLegId !== null) return;
+    if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) return;
+
+    var halfW = window.innerWidth/2, halfH = window.innerHeight/2;
+    var best = null, bestDist = HOVER_RADIUS;
+    LEGS.forEach(function(leg){
+      colLabels[leg.id].forEach(function(l, idx){
+        var sp = projectToScreen(l.worldPos, halfW, halfH);
+        if (sp.behind) return;
+        var d = Math.hypot(sp.x - e.clientX, sp.y - e.clientY);
+        if (d <= bestDist){ bestDist = d; best = { legId: leg.id, idx: idx }; }
+      });
+    });
+    tappedMarker = (best && tappedMarker && best.legId === tappedMarker.legId && best.idx === tappedMarker.idx)
+      ? null : best;
+  });
+
   var hemi = new THREE.HemisphereLight(0x9fc3ff, 0x0a0d12, 1.05);
   scene.add(hemi);
   var sun = new THREE.DirectionalLight(0xfff2e0, 0.85);
@@ -1687,6 +1725,7 @@ body{
   var SVGNS = "http://www.w3.org/2000/svg";
   var leaderSvg = document.getElementById("col-leader-lines");
   var colLabels = {}; // legId -> [{ el, worldPos }]
+  var tapActiveLabel = null; // touch has no hover, so tapping a label toggles its elevation instead
 
   function createColLabelEls(leg){
     colLabels[leg.id] = leg.colMarkers.map(function(marker){
@@ -1706,6 +1745,18 @@ body{
       var altFt = Math.round(marker.pt[1] * 3.28084);
       altEl.textContent = fmt(altFt) + " ft · " + fmt(Math.round(marker.pt[1])) + " m";
       el.appendChild(altEl);
+
+      // touch has no :hover, so tapping the label toggles the same reveal
+      el.addEventListener("click", function(){
+        if (tapActiveLabel === el){
+          el.classList.remove("tap-active");
+          tapActiveLabel = null;
+        } else {
+          if (tapActiveLabel) tapActiveLabel.classList.remove("tap-active");
+          el.classList.add("tap-active");
+          tapActiveLabel = el;
+        }
+      });
 
       colLabelsRoot.appendChild(el);
       var rect = el.getBoundingClientRect();
@@ -1869,6 +1920,7 @@ body{
   var exagNote = document.getElementById("exag-note");
 
   function focusLeg(id){
+    tappedMarker = null;
     var leg = LEGS.filter(function(l){ return l.id===id; })[0];
     var b = bboxOfPts(leg.pts);
     var diag = diag2D(b);
@@ -1926,6 +1978,7 @@ body{
   }
 
   function goOverview(){
+    tappedMarker = null;
     LEGS.forEach(function(leg){
       var cur = legGroups[leg.id];
       if (Math.abs(cur.ex - OVERVIEW_EX) > 0.01 || cur.radius !== OVERVIEW_RADIUS){
@@ -2096,7 +2149,9 @@ body{
 
     // in the overview (no day focused), hovering a col's marker labels
     // just that one col, instead of the usual "labels only for the
-    // focused day" rule — lets you identify any col without focusing it
+    // focused day" rule — lets you identify any col without focusing it.
+    // Falls back to tappedMarker (set by the pointerup handler above) for
+    // touch, which never produces a real hover.
     var hoveredMarker = null;
     if (activeLegId === null){
       var bestDist = HOVER_RADIUS;
@@ -2108,6 +2163,7 @@ body{
           if (d <= bestDist){ bestDist = d; hoveredMarker = { legId: leg.id, idx: idx }; }
         });
       });
+      if (!hoveredMarker) hoveredMarker = tappedMarker;
     }
 
     LEGS.forEach(function(leg){
@@ -2121,6 +2177,8 @@ body{
           if (l.el.style.opacity !== "0"){
             l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
             l.el.style.pointerEvents = "none";
+            l.el.classList.remove("tap-active");
+            if (tapActiveLabel === l.el) tapActiveLabel = null;
           }
         });
         return;
@@ -2141,6 +2199,8 @@ body{
           if (l.el.style.opacity !== "0"){
             l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
             l.el.style.pointerEvents = "none";
+            l.el.classList.remove("tap-active");
+            if (tapActiveLabel === l.el) tapActiveLabel = null;
           }
           return;
         }
@@ -2149,6 +2209,8 @@ body{
         if (sp.behind){
           l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
           l.el.style.pointerEvents = "none";
+          l.el.classList.remove("tap-active");
+          if (tapActiveLabel === l.el) tapActiveLabel = null;
           return;
         }
         l.ax = sp.x; l.ay = sp.y;
