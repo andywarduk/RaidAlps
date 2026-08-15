@@ -337,7 +337,10 @@ body{
   opacity:0;
   transition:opacity 180ms ease;
   will-change:transform,opacity;
-  cursor:default;
+  /* iOS Safari only reliably fires a click on the first tap for elements
+     it considers interactive — cursor:pointer is the signal it checks,
+     even though nothing here actually uses a mouse cursor */
+  cursor:pointer;
 }
 .col-label .col-label-alt{
   /* position:absolute takes this fully out of the document flow, so it
