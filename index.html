@@ -1706,7 +1706,7 @@ body{
 
   var overviewGrid = makeGrid(
     Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) * 1.35,
-    36, 0x22303c, 0x141c24
+    36, 0x3d5570, 0x263a4d
   );
   overviewGrid.position.set(
     (OVERVIEW_BBOX.minx+OVERVIEW_BBOX.maxx)/2, 0, (OVERVIEW_BBOX.minz+OVERVIEW_BBOX.maxz)/2
@@ -1868,26 +1868,34 @@ body{
     var vFov = camera.fov * Math.PI / 180;
     // shrink the usable frustum height to leave room for the reserved
     // strip at the bottom, then zoom out enough that the bounding sphere
-    // still fits inside what's left
+    // still fits inside what's left. Positioning the content within that
+    // extra room is handled separately by applyBottomReserve() — camPos
+    // and center (the orbit target) always stay exactly on the content's
+    // true center, so dragging to orbit always pivots correctly around it.
     var usableFrac = 1 - bottomReserveFrac;
     var dist = (boundingRadius / Math.sin(vFov / 2)) * 1.18 / usableFrac;
     var dir = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
     var camPos = center.clone().addScaledVector(dir, dist);
-
-    if (bottomReserveFrac > 0){
-      // push the framed content up on screen by half the reserved strip,
-      // using the camera's own screen-space "up" so it holds at any orbit
-      // angle — moving the look-at point down shifts what's rendered
-      // toward the top of the frame
-      var forward = center.clone().sub(camPos).normalize();
-      var worldUp = new THREE.Vector3(0,1,0);
-      var screenUp = worldUp.clone().addScaledVector(forward, -forward.dot(worldUp)).normalize();
-      var frustumHalfHeight = dist * Math.tan(vFov/2);
-      var shift = frustumHalfHeight * (bottomReserveFrac/2);
-      camPos.addScaledVector(screenUp, -shift);
-      center.addScaledVector(screenUp, -shift);
-    }
     return { center: center, camPos: camPos };
+  }
+
+  // Pushes the framed content up on screen to clear the reserved bottom
+  // strip via an asymmetric camera projection (three.js's view-offset
+  // mechanism, normally used for tiled rendering) rather than by moving
+  // the camera/target off the content's true center. This is what keeps
+  // drag-to-orbit pivoting cleanly around the content regardless of how
+  // much room the bottom HUD needs — the earlier approach shifted camPos
+  // and the orbit target together by the same amount, which looked right
+  // for the initial framing but left controls.target off-center, so
+  // orbiting away from that framing made the route visibly drift instead
+  // of rotating in place.
+  function applyBottomReserve(bottomReserveFrac){
+    if (bottomReserveFrac > 0){
+      var w = window.innerWidth, h = window.innerHeight;
+      camera.setViewOffset(w, h, 0, h * bottomReserveFrac / 4, w, h);
+    } else if (camera.view){
+      camera.clearViewOffset();
+    }
   }
 
   var tweenState = null;
@@ -1905,11 +1913,13 @@ body{
 
   // initial camera position = overview framing
   function computeOverviewFrame(){
+    var reserveFrac = hudBottomReserveFrac();
+    applyBottomReserve(reserveFrac);
     return frameBox({
       minx:OVERVIEW_BBOX.minx, maxx:OVERVIEW_BBOX.maxx,
       miny:OVERVIEW_BBOX.miny*OVERVIEW_EX, maxy:OVERVIEW_BBOX.maxy*OVERVIEW_EX,
       minz:OVERVIEW_BBOX.minz, maxz:OVERVIEW_BBOX.maxz
-    }, hudBottomReserveFrac());
+    }, reserveFrac);
   }
   var overviewFrame = computeOverviewFrame();
   camera.position.copy(overviewFrame.camPos);
@@ -2049,7 +2059,7 @@ body{
 
     // local grid
     if (focusGrid){ scene.remove(focusGrid); focusGrid.geometry.dispose(); focusGrid.material.dispose(); }
-    focusGrid = makeGrid(Math.max(b.maxx-b.minx, b.maxz-b.minz)*1.5, 24, 0x2a3a48, 0x161f28);
+    focusGrid = makeGrid(Math.max(b.maxx-b.minx, b.maxz-b.minz)*1.5, 24, 0x46607c, 0x2c4055);
     focusGrid.position.set((b.minx+b.maxx)/2, 0, (b.minz+b.maxz)/2);
     scene.add(focusGrid);
     overviewGrid.material.opacity = 0.04;
@@ -2058,10 +2068,12 @@ body{
     setActiveChip(id);
     showDetail(leg); // before framing, so its now-current content is measured for the HUD reserve
 
+    var focusReserveFrac = hudBottomReserveFrac();
+    applyBottomReserve(focusReserveFrac);
     var frame = frameBox({
       minx:b.minx, maxx:b.maxx, minz:b.minz, maxz:b.maxz,
       miny:b.miny*ex, maxy:b.maxy*ex
-    }, hudBottomReserveFrac());
+    }, focusReserveFrac);
     flyTo(frame.camPos, frame.center, 950);
     scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
 
