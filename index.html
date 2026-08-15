@@ -337,6 +337,20 @@ body{
   opacity:0;
   transition:opacity 180ms ease;
   will-change:transform,opacity;
+  cursor:default;
+}
+.col-label .col-label-alt{
+  display:inline-block;
+  max-width:0;
+  opacity:0;
+  overflow:hidden;
+  color:var(--text-secondary);
+  font-weight:500;
+  transition:max-width 180ms ease, opacity 180ms ease;
+}
+.col-label:hover .col-label-alt{
+  max-width:70px;
+  opacity:1;
 }
 
 @media (max-width:640px){
@@ -1664,7 +1678,19 @@ body{
       var el = document.createElement("div");
       el.className = "col-label";
       el.style.setProperty("--label-color", leg.color);
-      el.textContent = marker.name;
+
+      var nameEl = document.createElement("span");
+      nameEl.textContent = marker.name;
+      el.appendChild(nameEl);
+
+      // revealed on hover — expands the label rather than opening a
+      // separate tooltip, so it still tracks the same collision-avoidance
+      // box every other label uses
+      var altEl = document.createElement("span");
+      altEl.className = "col-label-alt";
+      altEl.textContent = fmt(Math.round(marker.pt[1])) + " m";
+      el.appendChild(altEl);
+
       colLabelsRoot.appendChild(el);
       var rect = el.getBoundingClientRect();
 
@@ -2078,6 +2104,7 @@ body{
         labels.forEach(function(l){
           if (l.el.style.opacity !== "0"){
             l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
+            l.el.style.pointerEvents = "none";
           }
         });
         return;
@@ -2097,6 +2124,7 @@ body{
         if (!isActive && labelIdx !== hoverIdx){
           if (l.el.style.opacity !== "0"){
             l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
+            l.el.style.pointerEvents = "none";
           }
           return;
         }
@@ -2104,9 +2132,11 @@ body{
         var sp = projectToScreen(l.worldPos, halfW, halfH);
         if (sp.behind){
           l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
+          l.el.style.pointerEvents = "none";
           return;
         }
         l.ax = sp.x; l.ay = sp.y;
+        l.el.style.pointerEvents = "auto";
 
         // re-measure live rather than trust the size cached at creation —
         // sandboxed frames don't reliably signal when the custom webfont
