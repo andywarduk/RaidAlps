@@ -340,23 +340,31 @@ body{
   cursor:default;
 }
 .col-label .col-label-alt{
-  display:inline-block;
-  /* flex items default to min-width:auto, which lets this span's own
-     min-content width (its clipped "1,968 m" text) fight the max-width:0
-     cap every layout pass — the two competing constraints made the
-     resolved width flicker frame to frame even while not hovered, which
-     fed straight into the label placement search and made it visibly
-     jump between ring candidates. min-width:0 removes that tug-of-war. */
-  min-width:0;
-  max-width:0;
-  opacity:0;
-  overflow:hidden;
+  /* position:absolute takes this fully out of the document flow, so it
+     can NEVER affect .col-label's own measured size (getBoundingClientRect)
+     — not on hover, not mid-transition, regardless of timing. Earlier
+     attempts kept it in flex flow (clipped via max-width:0) and fought
+     flex's own min-width:auto sizing, which made the label's measured
+     width flicker frame to frame and fed straight into the placement
+     search, causing it to keep jumping between ring candidates. Taking
+     it out of flow entirely removes that whole class of bug at the root
+     instead of trying to out-time it. */
+  position:absolute;
+  left:100%;
+  top:50%;
+  margin-left:5px;
+  transform:translateY(-50%);
+  padding:3px 8px 3px 6px;
+  background:var(--panel);
+  border:1px solid var(--hairline);
+  white-space:nowrap;
   color:var(--text-secondary);
   font-weight:500;
-  transition:max-width 180ms ease, opacity 180ms ease;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 180ms ease;
 }
 .col-label:hover .col-label-alt{
-  max-width:70px;
   opacity:1;
 }
 
@@ -2148,17 +2156,11 @@ body{
         // re-measure live rather than trust the size cached at creation —
         // sandboxed frames don't reliably signal when the custom webfont
         // has swapped in, and a stale (too-narrow) box lets labels overlap.
-        // Skipped while hovered: the elevation reveal grows this element
-        // through a transition, and feeding that live-changing size into
-        // placement below (ring search AND the viewport clamp) made the
-        // label visibly jump — both now keep using the size from just
-        // before the hover started, so hovering only ever grows the box
-        // in place rather than relocating it.
-        var isHovered = l.el.matches(":hover");
-        if (!isHovered){
-          var liveRect = l.el.getBoundingClientRect();
-          if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
-        }
+        // Safe to do unconditionally: the hover-revealed elevation text is
+        // position:absolute (see .col-label-alt), so it's never part of
+        // this element's own layout box and can't perturb this measurement.
+        var liveRect = l.el.getBoundingClientRect();
+        if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
 
         var hw = l.w/2 + LABEL_PAD, hh = l.h/2 + LABEL_PAD;
         var vw = halfW*2, vh = halfH*2;
