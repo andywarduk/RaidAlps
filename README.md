@@ -35,28 +35,42 @@ streams into `ROUTE_DATA`:
   Douglas-Peucker (6 m tolerance) rather than naive fixed-stride
   decimation, so real switchbacks (the Bonette massif especially) keep
   their shape while straight sections thin out.
-- **Col markers**: each day's named cols and their real recorded
-  elevation come straight from that activity's Strava description — the
-  actual climb-top reading from that specific ride, not a web-sourced
-  figure. Matching a col to a route point is a small dynamic-programming
-  sequence-alignment problem — find the strictly-increasing assignment
-  of route points to the day's ordered col list minimizing total
-  elevation error — rather than matching cols one at a time, greedily,
-  left to right (which lets an early col grab the best nearby altitude
-  match and leave nothing sensible for the col listed right after it).
-  Candidates are restricted to genuine local peaks (crests followed by a
-  descent) — elevation closeness alone isn't sufficient, or a col can
-  "match" a point that merely has a numerically close altitude while
-  sitting partway up a climb toward a much higher peak later. That's
-  exactly what happened to Col de Vars before this restriction existed:
-  matched to a point ~21 km away, partway up the approach to the much
-  higher Bonette climb, because that point's raw altitude happened to be
-  0.2 m closer to the real 2109 m than the actual (lower, genuinely
-  cresting) pass. Matches land within a few metres of the recorded
-  elevation almost everywhere; the handful several tens of metres off
-  (Iseran, Galibier, Izoard, and a few peaks in the tightly-packed
-  Bonette cluster) are real barometric/GPS altimeter drift, or a nearby
-  real peak within the same small massif, not a matching error.
+- **Col markers**: placed by matching against real-world data, in
+  priority order:
+  1. **22 of 26 cols have a known real-world coordinate** (`REAL_COORDS`
+     in `tools/rebuild_from_strava.py`, hand-gathered by web search).
+     For these, matching is a direct geographic nearest-point search —
+     the route point closest to the col's true position on the ground.
+     This only became possible once the route itself was real GPS data;
+     an earlier version of this pipeline tried reprojecting these same
+     coordinates onto the *previous*, synthetic placeholder route and
+     abandoned it — residuals of 10–60 km made it worse than useless
+     against data that didn't preserve real-world bearings.
+  2. **The remaining 4** (Col de la Platrière, Cime de Vermillon, Col de
+     Nice, plus any col where no coordinate could be found) fall back to
+     matching their real recorded elevation — read straight from that
+     activity's own Strava description, the actual climb-top reading
+     from that specific ride — against a genuine local peak in the
+     recorded altitude profile. "Genuine local peak" is load-bearing
+     here: a plain closest-altitude search doesn't require the matched
+     point to actually be a summit, and this exact gap is how Col de
+     Vars once ended up ~21 km from itself, matched to a point partway
+     up the approach to the much higher Bonette climb because that
+     point's raw altitude happened to be 0.2 m closer to the real 2109 m
+     than the real (lower, genuinely cresting) pass.
+
+  Both cases are solved as the same dynamic-programming sequence-
+  alignment problem — the strictly-increasing assignment of route points
+  to the day's ordered col list that minimizes total cost — rather than
+  matching cols one at a time, greedily, left to right, which lets an
+  early col grab the best nearby match and leave nothing sensible for
+  the col listed right after it. GPS matches land within meters to
+  ~100 m of the published coordinate almost everywhere (accuracy of the
+  published coordinate itself, mostly); elevation-fallback matches land
+  within a few metres of the recorded elevation, except a handful of
+  peaks in the tightly-packed Bonette cluster and the day's-sole-peak
+  cases (Iseran, Galibier, Izoard), off by a few tens of metres from
+  real barometric/GPS altimeter drift over long climbs.
 - **Stats**: per-day and trip-wide distance/elevation-gain/moving-time
   come straight from Strava's own summary numbers for each activity, not
   recomputed from the noisier raw altitude stream.

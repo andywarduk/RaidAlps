@@ -22,10 +22,22 @@ Pipeline per day:
      from that activity's Strava description (authoritative: it's the
      actual climb-top reading from this specific ride, not a web-sourced
      figure).
-  4. Match each named col to the route point whose *simplified* altitude
-     is closest to its real elevation, solved as a sequence-alignment DP
-     (strictly-increasing point assignment across the day's ordered col
-     list) rather than greedily — see the col-matching section below.
+  4. Match each named col to a route point. For the 22 cols with a known
+     real-world coordinate (REAL_COORDS, hand-gathered by web search),
+     this is a direct geographic nearest-point match — reliable now that
+     the route itself is real GPS, not the synthetic placeholder data an
+     earlier version of this pipeline worked against (GPS-to-synthetic
+     reprojection was tried and abandoned then; residuals of 10-60km made
+     it worse than useless). The 4 without a known coordinate fall back
+     to elevation-matching against a genuine local peak — never a bare
+     "closest altitude", which doesn't require the candidate to actually
+     be a summit and is how Col de Vars once ended up ~21km from itself,
+     matched to a point partway up the approach to a much higher climb
+     that happened to pass through nearly the same altitude. Both cases
+     are solved as the same sequence-alignment DP (strictly-increasing
+     point assignment across the day's ordered col list) rather than
+     greedily, so an early col can't grab the best nearby match and leave
+     nothing sensible for the col listed right after it.
   5. Per-day and trip-wide summary stats (distance, elevation gain,
      moving time) come straight from Strava's own summary numbers, not
      recomputed from the noisy raw altitude stream.
@@ -68,6 +80,37 @@ STRAVA_ACTIVITY_IDS = {
     "day3a": "19524019256", "day3b": "19502730333",
     "day4": "19524023015", "day5": "19529639400",
     "day6": "19543426888", "day7": "19557382766",
+}
+
+# Real-world (lat, lon), hand-gathered by web search. None = no reliable
+# coordinate found anywhere online; falls back to elevation+peak matching
+# (see REAL_ALT below, parsed from each activity's own description).
+REAL_COORDS = {
+    "Col de Jambaz":                (46.23472,  6.52028),
+    "Col de la Colombière":         (45.99222,  6.47583),
+    "Col de St Jean de Sixt":       (45.92,     6.41),
+    "Col des Aravis":               (45.87250,  6.46472),
+    "Col des Saisies":              (45.75833,  6.52861),
+    "Col du Méraillet":             (45.69500,  6.63472),
+    "Cormet de Roselend":           (45.69111,  6.69056),
+    "Col de l'Iseran":              (45.41680,  7.02520),
+    "Col du Télégraphe":            (45.20250,  6.44440),
+    "Col du Galibier":              (45.06400,  6.40800),
+    "Col du Lautaret":              (45.03444,  6.40500),
+    "Col d'Izoard":                 (44.81972,  6.73500),
+    "Col de la Platrière":          None,
+    "Col de Vars":                  (44.53890,  6.70275),
+    "Faux col de Restefond":        (44.33680,  6.80130),
+    "Col de Restefond":             (44.33600,  6.80800),
+    "Col de la Bonette":            (44.32700,  6.80700),
+    "Col de la Cime de la Bonette": (44.32170,  6.80690),
+    "Cime de Vermillon":            None,
+    "Col de Raspaillon":            (44.34050,  6.83220),
+    "Col Saint-Martin":             (44.07111,  7.22083),
+    "Col de Turini":                (43.97778,  7.39167),
+    "Col St Roch":                  (43.89563,  7.33728),
+    "Col de Nice":                  None,
+    "Col d'Èze":                    (43.72860,  7.36170),  # village approx, pass itself unpublished
 }
 
 DP_TOLERANCE_M = 6.0
@@ -125,36 +168,53 @@ def prominence(pts, i):
     return alt - max(left_min, right_min)
 
 
-def pick_cols_dp(pts, col_list):
-    """Best strictly-increasing assignment of route indices to named cols,
-    minimizing total |recorded_alt - real_alt| (or, for a col with no real
-    elevation, favoring the most topographically prominent peak instead).
+def pick_cols_dp(pts, col_names, real_alts, project):
+    """Best strictly-increasing assignment of route indices to a day's
+    ordered col list, solved jointly (not greedily) so an early col can't
+    grab the best nearby match and leave nothing sensible for the col
+    listed right after it.
 
-    Candidates are restricted to genuine local maxima. Without this, a col
-    can be "matched" to a point that merely has a numerically close
-    altitude while sitting partway up a climb toward a much higher peak
-    later — technically a tiny bit closer in elevation than the real
-    (lower, but genuinely cresting) pass, yet nowhere near it on the
-    ground. Real cols are, by definition, the top of a climb followed by
-    a descent, so a non-peak point is never a valid match regardless of
-    how close its altitude happens to land."""
-    n = len(pts); k = len(col_list); NEG = float("inf")
+    Per-col cost, in priority order:
+      1. Known real coordinate (REAL_COORDS): geographic distance in
+         metres from that point to the col's true position. This is the
+         primary, most reliable signal — it's what "the col is in the
+         wrong place" actually means, so it's what should minimize it.
+      2. No known coordinate, but a real recorded elevation: |recorded
+         altitude - real altitude|, restricted to genuine local maxima
+         only (crest with a descent on both sides). Without that
+         restriction, a point can be a near-perfect altitude match while
+         sitting partway up a climb toward a much higher peak later —
+         nowhere near the real col on the ground.
+      3. Neither: fall back to the single most topographically prominent
+         peak in its slot.
+    Distance-based and altitude-based costs are both in "metres", so they
+    combine reasonably in the same DP even when a leg mixes col types."""
+    n = len(pts); k = len(col_names); NEG = float("inf")
     peak_ok = [is_local_max(pts, i) for i in range(n)]
-    def cost(i, real_alt):
+
+    def cost(i, name):
+        coord = REAL_COORDS.get(name)
+        if coord is not None:
+            xc, zc = project(*coord)
+            return math.hypot(pts[i][0] - xc, pts[i][2] - zc)
         if not peak_ok[i]:
             return NEG
-        return abs(pts[i][1] - real_alt) if real_alt is not None else -prominence(pts, i) * 0.1
+        real_alt = real_alts.get(name)
+        if real_alt is not None:
+            return abs(pts[i][1] - real_alt)
+        return -prominence(pts, i) * 0.1
+
     dp = [[NEG] * n for _ in range(k)]
     back = [[-1] * n for _ in range(k)]
     for i in range(n):
-        dp[0][i] = cost(i, col_list[0][1])
+        dp[0][i] = cost(i, col_names[0])
     for j in range(1, k):
         best_prev, best_prev_idx = NEG, -1
         for i in range(n):
             if i - 1 >= 0 and dp[j - 1][i - 1] < best_prev:
                 best_prev, best_prev_idx = dp[j - 1][i - 1], i - 1
             if best_prev == NEG: continue
-            dp[j][i] = cost(i, col_list[j][1]) + best_prev
+            dp[j][i] = cost(i, col_names[j]) + best_prev
             back[j][i] = best_prev_idx
     best_i = min(range(n), key=lambda i: dp[k - 1][i])
     if dp[k - 1][best_i] == NEG:
@@ -196,22 +256,31 @@ def main():
         pts = [[round(p[0], 1), round(p[1], 1), round(p[2], 1)] for p in pts]
 
         cols = parse_cols(meta["desc"])
-        chosen = pick_cols_dp(pts, cols)
-        col_markers = [{"name": name, "pt": pts[idx]} for idx, (name, _) in zip(chosen, cols)]
+        col_names = [name for name, _ in cols]
+        real_alts = dict(cols)
+        chosen = pick_cols_dp(pts, col_names, real_alts, project)
+        col_markers = [{"name": name, "pt": pts[idx]} for idx, name in zip(chosen, col_names)]
 
         dist_km = meta["distance"] / 1000.0
         gain_m = meta["elevation_gain"]
         max_alt_m = max(p[1] for p in pts)
         legs[key] = {
-            "date": meta["date"], "cols": " • ".join(n for n, _ in cols), "pts": pts,
+            "date": meta["date"], "cols": " • ".join(col_names), "pts": pts,
             "dist_km": round(dist_km, 1), "dist_mi": round(dist_km * KM_TO_MI, 1),
             "gain_m": round(gain_m), "gain_ft": round(gain_m * M_TO_FT),
             "max_alt_m": round(max_alt_m), "max_alt_ft": round(max_alt_m * M_TO_FT),
             "colMarkers": col_markers,
         }
-        for idx, (name, alt) in zip(chosen, cols):
-            print(f"{key:6s} idx={idx:4d}/{len(pts)-1:4d}  alt={pts[idx][1]:8.1f}  real={alt:5d}  "
-                  f"diff={pts[idx][1]-alt:+6.1f}m  -> {name}")
+        for idx, name in zip(chosen, col_names):
+            coord = REAL_COORDS.get(name)
+            if coord is not None:
+                xc, zc = project(*coord)
+                dist = math.hypot(pts[idx][0] - xc, pts[idx][2] - zc)
+                how = f"GPS  dist={dist:7.1f}m"
+            else:
+                real_alt = real_alts.get(name)
+                how = f"ALT  diff={pts[idx][1]-real_alt:+6.1f}m" if real_alt else "PROMINENCE"
+            print(f"{key:6s} idx={idx:4d}/{len(pts)-1:4d}  {how:22s}  -> {name}")
 
     all_x = [p[0] for k in legs for p in legs[k]["pts"]]
     all_y = [p[1] for k in legs for p in legs[k]["pts"]]
