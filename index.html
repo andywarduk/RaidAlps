@@ -418,7 +418,7 @@ body{
       <div id="chip-rail" class="chip-rail"></div>
       <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
         <div id="exag-note" class="hint"></div>
-        <div class="hint">drag to orbit &middot; scroll to zoom &middot; click a day to focus</div>
+        <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom &middot; click a day to focus</div>
       </div>
     </div>
   </div>
@@ -1918,6 +1918,14 @@ body{
   // ---- focus / overview transitions ----------------------------------------
   var activeLegId = null;
   var exagNote = document.getElementById("exag-note");
+
+  // "scroll to zoom" / "click" describe a mouse, not a finger — swap in
+  // touch-appropriate wording on devices whose primary pointer is coarse
+  // (same signal used to gate the hover-reveal CSS elsewhere on the page)
+  var interactionHint = document.getElementById("interaction-hint");
+  if (window.matchMedia && window.matchMedia("(pointer:coarse)").matches){
+    interactionHint.textContent = "drag to orbit · pinch to zoom · tap a day to focus";
+  }
 
   function focusLeg(id){
     tappedMarker = null;
