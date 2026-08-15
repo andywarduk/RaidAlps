@@ -370,7 +370,7 @@ body{
     <div class="masthead">
       <div class="eyebrow">Cycling Expedition &middot; 26 Jul&ndash;1 Aug 2026</div>
       <h1 class="title">Raid Alps</h1>
-      <p class="sub">Seven climbing days across the French Alps &mdash; from the Aravis above Annecy to the hills above Nice &mdash; 26 named cols and 15,483&nbsp;m of climbing in one week.</p>
+      <p class="sub">Seven climbing days across the French Alps &mdash; from Thonon-les-Bains to Nice &mdash; 26 named cols and 15,483&nbsp;m of climbing in one week.</p>
     </div>
     <div id="stat-rail" class="stat-rail"></div>
   </div>
@@ -1493,6 +1493,11 @@ body{
     leg.colMarkers = leg.colMarkers.filter(function(cm){ return !EXCLUDED_COLS[cm.name]; });
   });
 
+  // trip start/end — reuse the same marker/label/leader-line machinery as cols
+  var firstLeg = LEGS[0], lastLeg = LEGS[LEGS.length-1];
+  firstLeg.colMarkers.unshift({ name:"Thonon-les-Bains", pt:firstLeg.pts[0] });
+  lastLeg.colMarkers.push({ name:"Nice", pt:lastLeg.pts[lastLeg.pts.length-1] });
+
   // ---- geometry helpers ----------------------------------------------------
   function segmentsFromPts(pts){
     // split on null gap markers into contiguous runs
@@ -1973,8 +1978,30 @@ body{
 
   // col labels only show for the currently focused day, to keep the
   // overview (26 cols across 7 days) from turning into text soup
+  // fixed HUD chrome (title block, stat tiles, detail card, day chips) that
+  // labels must dodge too — otherwise one can land under an opaque panel
+  // and just disappear, as "Nice" did behind the day-7 detail card
+  var hudObstacleEls = [
+    document.querySelector(".masthead"),
+    document.getElementById("stat-rail"),
+    document.getElementById("detail-card"),
+    document.getElementById("chip-rail")
+  ].filter(Boolean);
+
+  function getHudObstacleBoxes(){
+    var boxes = [];
+    hudObstacleEls.forEach(function(el){
+      if (el.id === "detail-card" && !el.classList.contains("visible")) return;
+      var r = el.getBoundingClientRect();
+      if (r.width === 0 || r.height === 0) return;
+      boxes.push({ cx:r.left+r.width/2, cy:r.top+r.height/2, hw:r.width/2, hh:r.height/2 });
+    });
+    return boxes;
+  }
+
   function updateColLabelScreenPositions(){
     var halfW = window.innerWidth/2, halfH = window.innerHeight/2;
+    var hudBoxes = getHudObstacleBoxes();
 
     LEGS.forEach(function(leg){
       var isActive = (activeLegId === leg.id);
@@ -1998,7 +2025,7 @@ body{
         return sp.behind ? null : [sp.x, sp.y];
       });
 
-      var placedBoxes = [];
+      var placedBoxes = hudBoxes.slice();
       labels.forEach(function(l){
         var sp = projectToScreen(l.worldPos, halfW, halfH);
         if (sp.behind){
