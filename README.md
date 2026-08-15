@@ -44,10 +44,19 @@ streams into `ROUTE_DATA`:
   elevation error — rather than matching cols one at a time, greedily,
   left to right (which lets an early col grab the best nearby altitude
   match and leave nothing sensible for the col listed right after it).
-  Matches land within a few metres of the recorded elevation almost
-  everywhere; the three exceptions (Iseran, Galibier, Izoard, each
-  45–70 m off) are real barometric/GPS altimeter drift over long
-  climbs, not a matching error.
+  Candidates are restricted to genuine local peaks (crests followed by a
+  descent) — elevation closeness alone isn't sufficient, or a col can
+  "match" a point that merely has a numerically close altitude while
+  sitting partway up a climb toward a much higher peak later. That's
+  exactly what happened to Col de Vars before this restriction existed:
+  matched to a point ~21 km away, partway up the approach to the much
+  higher Bonette climb, because that point's raw altitude happened to be
+  0.2 m closer to the real 2109 m than the actual (lower, genuinely
+  cresting) pass. Matches land within a few metres of the recorded
+  elevation almost everywhere; the handful several tens of metres off
+  (Iseran, Galibier, Izoard, and a few peaks in the tightly-packed
+  Bonette cluster) are real barometric/GPS altimeter drift, or a nearby
+  real peak within the same small massif, not a matching error.
 - **Stats**: per-day and trip-wide distance/elevation-gain/moving-time
   come straight from Strava's own summary numbers for each activity, not
   recomputed from the noisier raw altitude stream.

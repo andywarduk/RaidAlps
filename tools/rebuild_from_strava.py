@@ -105,6 +105,13 @@ def douglas_peucker(pts, tol):
     return [pts[0], pts[-1]]
 
 
+def is_local_max(pts, i):
+    n = len(pts)
+    if i == 0 or i == n - 1:
+        return False
+    return pts[i][1] >= pts[i - 1][1] and pts[i][1] >= pts[i + 1][1]
+
+
 def prominence(pts, i):
     alt = pts[i][1]; n = len(pts)
     left_min = alt; j = i - 1
@@ -121,9 +128,21 @@ def prominence(pts, i):
 def pick_cols_dp(pts, col_list):
     """Best strictly-increasing assignment of route indices to named cols,
     minimizing total |recorded_alt - real_alt| (or, for a col with no real
-    elevation, favoring the most topographically prominent peak instead)."""
+    elevation, favoring the most topographically prominent peak instead).
+
+    Candidates are restricted to genuine local maxima. Without this, a col
+    can be "matched" to a point that merely has a numerically close
+    altitude while sitting partway up a climb toward a much higher peak
+    later — technically a tiny bit closer in elevation than the real
+    (lower, but genuinely cresting) pass, yet nowhere near it on the
+    ground. Real cols are, by definition, the top of a climb followed by
+    a descent, so a non-peak point is never a valid match regardless of
+    how close its altitude happens to land."""
     n = len(pts); k = len(col_list); NEG = float("inf")
+    peak_ok = [is_local_max(pts, i) for i in range(n)]
     def cost(i, real_alt):
+        if not peak_ok[i]:
+            return NEG
         return abs(pts[i][1] - real_alt) if real_alt is not None else -prominence(pts, i) * 0.1
     dp = [[NEG] * n for _ in range(k)]
     back = [[-1] * n for _ in range(k)]
@@ -138,6 +157,8 @@ def pick_cols_dp(pts, col_list):
             dp[j][i] = cost(i, col_list[j][1]) + best_prev
             back[j][i] = best_prev_idx
     best_i = min(range(n), key=lambda i: dp[k - 1][i])
+    if dp[k - 1][best_i] == NEG:
+        raise RuntimeError("no valid assignment found — not enough local peaks for this col list")
     chosen = [None] * k; i = best_i
     for j in range(k - 1, -1, -1):
         chosen[j] = i; i = back[j][i]
