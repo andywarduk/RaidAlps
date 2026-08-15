@@ -1567,6 +1567,22 @@ body{
   controls.maxPolarAngle = Math.PI * 0.49;
   controls.screenSpacePanning = true;
 
+  // ---- overview col hover -----------------------------------------------
+  // lets a col be labeled by hovering its marker even when no day is
+  // focused, without cluttering the overview with all 26 labels at once.
+  // Hit-tested in 2D screen space against each marker's projected point
+  // (with a fixed pixel radius) rather than 3D-raycasting the actual
+  // sphere mesh, since at overview zoom a marker can be only a couple of
+  // pixels across — too small a target to click precisely in 3D.
+  var hoverMouseX = -1e9, hoverMouseY = -1e9;
+  var HOVER_RADIUS = 14;
+  renderer.domElement.addEventListener("mousemove", function(e){
+    hoverMouseX = e.clientX; hoverMouseY = e.clientY;
+  });
+  renderer.domElement.addEventListener("mouseleave", function(){
+    hoverMouseX = -1e9; hoverMouseY = -1e9;
+  });
+
   var hemi = new THREE.HemisphereLight(0x9fc3ff, 0x0a0d12, 1.05);
   scene.add(hemi);
   var sun = new THREE.DirectionalLight(0xfff2e0, 0.85);
@@ -2036,12 +2052,29 @@ body{
     var halfW = window.innerWidth/2, halfH = window.innerHeight/2;
     var hudBoxes = getHudObstacleBoxes();
 
+    // in the overview (no day focused), hovering a col's marker labels
+    // just that one col, instead of the usual "labels only for the
+    // focused day" rule — lets you identify any col without focusing it
+    var hoveredMarker = null;
+    if (activeLegId === null){
+      var bestDist = HOVER_RADIUS;
+      LEGS.forEach(function(leg){
+        colLabels[leg.id].forEach(function(l, idx){
+          var sp = projectToScreen(l.worldPos, halfW, halfH);
+          if (sp.behind) return;
+          var d = Math.hypot(sp.x - hoverMouseX, sp.y - hoverMouseY);
+          if (d <= bestDist){ bestDist = d; hoveredMarker = { legId: leg.id, idx: idx }; }
+        });
+      });
+    }
+
     LEGS.forEach(function(leg){
       var isActive = (activeLegId === leg.id);
       var groupOpacity = isActive ? currentOpacity(legGroups[leg.id].group) : 0;
       var labels = colLabels[leg.id];
+      var hoverIdx = (!isActive && hoveredMarker && hoveredMarker.legId === leg.id) ? hoveredMarker.idx : -1;
 
-      if (groupOpacity <= 0.02){
+      if (groupOpacity <= 0.02 && hoverIdx < 0){
         labels.forEach(function(l){
           if (l.el.style.opacity !== "0"){
             l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
@@ -2060,7 +2093,14 @@ body{
 
       var placedBoxes = hudBoxes.slice();
       var placedLines = [];
-      labels.forEach(function(l){
+      labels.forEach(function(l, labelIdx){
+        if (!isActive && labelIdx !== hoverIdx){
+          if (l.el.style.opacity !== "0"){
+            l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
+          }
+          return;
+        }
+        var labelOpacity = isActive ? groupOpacity : 1;
         var sp = projectToScreen(l.worldPos, halfW, halfH);
         if (sp.behind){
           l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
@@ -2111,7 +2151,7 @@ body{
         l.cx = chosen.cx; l.cy = chosen.cy;
 
         l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
-        l.el.style.opacity = groupOpacity;
+        l.el.style.opacity = labelOpacity;
 
         // chosenEdge targets the padded collision box (LABEL_PAD bigger than
         // the label so neighbors keep a margin) — recompute against the
@@ -2119,9 +2159,9 @@ body{
         var edge = boxEdgeToward(chosen.cx, chosen.cy, l.w/2, l.h/2, l.ax, l.ay);
         l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
         l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
-        l.line.style.opacity = groupOpacity;
+        l.line.style.opacity = labelOpacity;
         l.dot.setAttribute("cx", l.ax); l.dot.setAttribute("cy", l.ay);
-        l.dot.style.opacity = groupOpacity;
+        l.dot.style.opacity = labelOpacity;
         placedLines.push({ x1:l.ax, y1:l.ay, x2:edge[0], y2:edge[1] });
       });
     });
