@@ -442,7 +442,7 @@ body{
     <div id="detail-card" class="detail-card"></div>
     <div id="chip-rail" class="chip-rail"></div>
     <div id="exag-note" class="hint"></div>
-    <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom &middot; click a day to focus</div>
+    <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom</div>
   </div>
 </div>
 
@@ -1998,7 +1998,7 @@ body{
   // (same signal used to gate the hover-reveal CSS elsewhere on the page)
   var interactionHint = document.getElementById("interaction-hint");
   if (window.matchMedia && window.matchMedia("(pointer:coarse)").matches){
-    interactionHint.textContent = "drag to orbit · pinch to zoom · tap a day to focus";
+    interactionHint.textContent = "drag to orbit · pinch to zoom";
   }
 
   function focusLeg(id){
