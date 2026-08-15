@@ -1874,18 +1874,42 @@ body{
   function frameBox(b, bottomReserveFrac){
     bottomReserveFrac = bottomReserveFrac || 0;
     var center = new THREE.Vector3((b.minx+b.maxx)/2, ((b.miny||0)+(b.maxy||0))/2, (b.minz+b.maxz)/2);
-    var size = new THREE.Vector3(b.maxx-b.minx, (b.maxy-b.miny)||1, b.maxz-b.minz);
-    var boundingRadius = Math.max(size.length() / 2, 200);
     var vFov = camera.fov * Math.PI / 180;
-    // shrink the usable frustum height to leave room for the reserved
-    // strip at the bottom, then zoom out enough that the bounding sphere
-    // still fits inside what's left. Positioning the content within that
-    // extra room is handled separately by applyBottomReserve() — camPos
-    // and center (the orbit target) always stay exactly on the content's
-    // true center, so dragging to orbit always pivots correctly around it.
-    var usableFrac = 1 - bottomReserveFrac;
-    var dist = (boundingRadius / Math.sin(vFov / 2)) * 1.18 / usableFrac;
+    var hFov = 2 * Math.atan(Math.tan(vFov/2) * camera.aspect);
     var dir = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
+
+    // Exact fit instead of circumscribing a sphere around the box's full
+    // diagonal: project the 8 corners onto the view plane (perpendicular
+    // to the fixed viewing direction) and use their actual half-extents.
+    // A sphere wastes a lot of room for the long, thin shape most day
+    // routes are, and the old formula only checked vFov, leaving the
+    // (usually wider) horizontal FOV of a landscape viewport unused.
+    var forward = dir.clone().negate();
+    var worldUp = new THREE.Vector3(0,1,0);
+    var right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
+    var up = new THREE.Vector3().crossVectors(right, forward).normalize();
+    var corners = [
+      [b.minx,b.miny,b.minz],[b.maxx,b.miny,b.minz],[b.minx,b.maxy,b.minz],[b.maxx,b.maxy,b.minz],
+      [b.minx,b.miny,b.maxz],[b.maxx,b.miny,b.maxz],[b.minx,b.maxy,b.maxz],[b.maxx,b.maxy,b.maxz]
+    ];
+    var maxRight = 0, maxUp = 0, offset = new THREE.Vector3();
+    corners.forEach(function(c){
+      offset.set(c[0]-center.x, c[1]-center.y, c[2]-center.z);
+      maxRight = Math.max(maxRight, Math.abs(offset.dot(right)));
+      maxUp = Math.max(maxUp, Math.abs(offset.dot(up)));
+    });
+
+    // shrink the usable frustum height to leave room for the reserved
+    // strip at the bottom, then zoom out enough that the box still fits
+    // inside what's left. Positioning the content within that extra room
+    // is handled separately by applyBottomReserve() — camPos and center
+    // (the orbit target) always stay exactly on the content's true
+    // center, so dragging to orbit always pivots correctly around it.
+    var usableFrac = 1 - bottomReserveFrac;
+    var distForHeight = maxUp / Math.tan(vFov/2) / usableFrac;
+    var distForWidth = maxRight / Math.tan(hFov/2);
+    var dist = Math.max(distForHeight, distForWidth, 200) * 1.18;
+
     var camPos = center.clone().addScaledVector(dir, dist);
     return { center: center, camPos: camPos };
   }
