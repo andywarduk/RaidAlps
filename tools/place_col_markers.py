@@ -37,12 +37,15 @@ REAL_ALT = {
     "Col de Turini": 1607, "Col St Roch": 1004, "Col de Nice": None, "Col d'Èze": 520,
 }
 
-# Cols with no reliable published position or elevation at all. Still
-# written into ROUTE_DATA (so the underlying data stays complete) —
-# index.html's own JS drops them from colMarkers at runtime (see the
-# NO_DATA_COLS filter in the leg-merge step), so no marker/label is ever
-# drawn for them. Listed here only so the report below can flag them.
-NO_DATA_COLS = {"Cime de Vermillon", "Col de Nice"}
+# Cols excluded from the map: Cime de Vermillon / Col de Nice have no
+# published elevation or position anywhere; Faux col de Restefond isn't
+# a genuine named pass (the name means "false col" — just a saddle near
+# the real Col de Restefond). Still written into ROUTE_DATA (so the
+# underlying data stays complete) — index.html's own JS drops them from
+# colMarkers at runtime (see the EXCLUDED_COLS filter in the leg-merge
+# step), so no marker/label is ever drawn for them. Listed here only so
+# the report below can flag them.
+EXCLUDED_COLS = {"Cime de Vermillon", "Col de Nice", "Faux col de Restefond"}
 
 UNKNOWN_WEIGHT = 0.1  # how strongly an unmatched col prefers a prominent peak
 
@@ -158,7 +161,7 @@ def main():
         for idx, name in zip(chosen, cols):
             real = REAL_ALT.get(name)
             diff = "" if real is None else f"  diff={pts[idx][1]-real:+.0f}m"
-            dropped = "  (no data — hidden client-side)" if name in NO_DATA_COLS else ""
+            dropped = "  (excluded — hidden client-side)" if name in EXCLUDED_COLS else ""
             print(f"{leg_id:6s} idx={idx:4d}  alt={pts[idx][1]:8.1f}{diff}  -> {name}{dropped}")
 
     new_json = json.dumps(data, ensure_ascii=False, separators=(",", ":"))

@@ -1,4 +1,4 @@
-<title>Alps Traverse</title>
+<title>Raid Alps</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <style>
 :root{
@@ -369,7 +369,7 @@ body{
   <div class="hud-top">
     <div class="masthead">
       <div class="eyebrow">Cycling Expedition &middot; 26 Jul&ndash;1 Aug 2026</div>
-      <h1 class="title">Alps Traverse</h1>
+      <h1 class="title">Raid Alps</h1>
       <p class="sub">Seven climbing days across the French Alps &mdash; from the Aravis above Annecy to the hills above Nice &mdash; 26 named cols and 15,483&nbsp;m of climbing in one week.</p>
     </div>
     <div id="stat-rail" class="stat-rail"></div>
@@ -1485,9 +1485,12 @@ body{
     leg.color = cssVar(leg.colorVar);
     leg.colMarkers = [];
     parts.forEach(function(p){ leg.colMarkers = leg.colMarkers.concat(p.colMarkers); });
-    // no published elevation/position could be found for these — drop rather than guess
-    var NO_DATA_COLS = { "Cime de Vermillon":1, "Col de Nice":1 };
-    leg.colMarkers = leg.colMarkers.filter(function(cm){ return !NO_DATA_COLS[cm.name]; });
+    // Cime de Vermillon / Col de Nice: no published elevation or position
+    // could be found — drop rather than guess. Faux col de Restefond: not
+    // a genuine named pass (the name literally means "false col"), just a
+    // saddle near the real Col de Restefond.
+    var EXCLUDED_COLS = { "Cime de Vermillon":1, "Col de Nice":1, "Faux col de Restefond":1 };
+    leg.colMarkers = leg.colMarkers.filter(function(cm){ return !EXCLUDED_COLS[cm.name]; });
   });
 
   // ---- geometry helpers ----------------------------------------------------
