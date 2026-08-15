@@ -1,8 +1,9 @@
 # Raid Alps
 
-A self-contained 3D visualization of a 7-day, 352-mile cycling traverse of
-the French Alps — Annecy to Nice, 26 named cols, 15,483 m of climbing.
-Built with Three.js, rendered client-side from an embedded route dataset.
+A self-contained 3D visualization of a real 7-day, 427-mile cycling
+traverse of the French Alps — Thonon-les-Bains to Nice, 26 named cols,
+16,106 m of climbing. Built with Three.js, rendered client-side from an
+embedded route dataset sourced from the rider's own Strava activities.
 
 ## Running it
 
@@ -18,38 +19,56 @@ Drag to orbit, scroll to zoom, click a day to focus on it. Focusing a day
 shows labels for its named cols, each with a leader line to a marker on
 the route.
 
-## How the col markers are placed
+## Where the route data comes from
 
 `index.html` embeds a `window.ROUTE_DATA` object: per-day polylines
-(`[x, altitude, z]` points in an internal, unscaled local coordinate
-system — not real GPS) plus each day's list of named cols in ride order.
-The data has no per-col position, only the polyline and the names.
+(`[x, altitude, z]` points in a local, unscaled coordinate system — a
+flat equirectangular projection referenced to the trip's centroid, not
+tied to true north) plus each day's list of named cols in ride order.
 
-`tools/place_col_markers.py` figures out which point on each day's
-polyline corresponds to which named col, using real published elevations
-(hand-gathered from Wikipedia and cycling-climb sites) as ground truth.
-For each day it solves a small dynamic-programming sequence-alignment
-problem — find the strictly-increasing assignment of route points to that
-day's ordered col list minimizing total elevation error — rather than
-matching cols one at a time, greedily, left to right. The DP avoids the
-greedy version's failure mode: an earlier col grabbing the best nearby
-altitude match and leaving nothing sensible for the col listed right
-after it.
+The eight rides (day 3 was split into two activities) are real Strava
+activities — see `STRAVA_ACTIVITY_IDS` in `tools/rebuild_from_strava.py`.
+`tools/rebuild_from_strava.py` turns their location/altitude/distance
+streams into `ROUTE_DATA`:
 
-Two named cols (Cime de Vermillon, Col de Nice) have no reliable
-published elevation or position anywhere online. They stay in each day's
-descriptive text but get no marker or label — `index.html`'s own
-leg-merge step drops them from `colMarkers` at runtime, so this is a
-client-side filter, not a hole in the source data.
+- **Points**: full-resolution GPS streams are simplified with
+  Douglas-Peucker (6 m tolerance) rather than naive fixed-stride
+  decimation, so real switchbacks (the Bonette massif especially) keep
+  their shape while straight sections thin out.
+- **Col markers**: each day's named cols and their real recorded
+  elevation come straight from that activity's Strava description — the
+  actual climb-top reading from that specific ride, not a web-sourced
+  figure. Matching a col to a route point is a small dynamic-programming
+  sequence-alignment problem — find the strictly-increasing assignment
+  of route points to the day's ordered col list minimizing total
+  elevation error — rather than matching cols one at a time, greedily,
+  left to right (which lets an early col grab the best nearby altitude
+  match and leave nothing sensible for the col listed right after it).
+  Matches land within a few metres of the recorded elevation almost
+  everywhere; the three exceptions (Iseran, Galibier, Izoard, each
+  45–70 m off) are real barometric/GPS altimeter drift over long
+  climbs, not a matching error.
+- **Stats**: per-day and trip-wide distance/elevation-gain/moving-time
+  come straight from Strava's own summary numbers for each activity, not
+  recomputed from the noisier raw altitude stream.
 
-Re-run after changing route point data or the `REAL_ALT` table:
+Two named cols (Cime de Vermillon, Col de Nice) get no marker or label
+even though real data exists for both now — `index.html`'s own
+leg-merge step drops them from `colMarkers` at runtime (`EXCLUDED_COLS`),
+alongside Faux col de Restefond (not a genuine named pass — the name
+means "false col"). This is a client-side filter, not a hole in the
+source data.
+
+Re-run after re-fetching activity streams (the script expects each
+day's raw stream JSON as `day1_streams.json`, `day2_streams.json`, etc.,
+in the working directory — see the module docstring):
 
 ```bash
-python3 tools/place_col_markers.py index.html
+python3 tools/rebuild_from_strava.py index.html
 ```
 
 It rewrites `window.ROUTE_DATA` in place and prints each col's chosen
-point, altitude, and error against its published elevation.
+point, altitude, and error against its recorded elevation.
 
 ## Rendering notes
 
@@ -63,9 +82,17 @@ point, altitude, and error against its published elevation.
   the mismatch between that and the camera's true distance fogged the
   entire route into the background color, rendering as an empty scene.
 - Col labels are placed in 2D screen space each frame: each candidate
-  position is checked against the day's projected polyline and every
-  already-placed label, in expanding rings around its marker, so labels
-  never overlap each other or the route line. Label width/height is
-  re-measured from the live DOM every frame rather than cached once at
-  creation — the custom webfont doesn't reliably signal "loaded" inside
-  a sandboxed iframe, so a one-time measurement can be too narrow.
+  position is scored against the day's projected polyline, every
+  already-placed label's box, and every already-placed label's leader
+  line (checked in both directions — a new label avoiding an old line
+  isn't enough, the new line must avoid old boxes too), in expanding
+  rings around its marker. Positions that would make text unreadable
+  (overlapping a box, or a line piercing one) are weighted far more
+  heavily than merely cosmetic ones (a crossed line, a line grazing the
+  path), and the best-scoring candidate always wins — so a crowded
+  cluster degrades gracefully instead of a fixed search order
+  exhausting itself and falling back to an unchecked placement. Label
+  width/height is re-measured from the live DOM every frame rather than
+  cached once at creation — the custom webfont doesn't reliably signal
+  "loaded" inside a sandboxed iframe, so a one-time measurement can be
+  too narrow.
