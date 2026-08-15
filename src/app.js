@@ -453,8 +453,7 @@
   controls.target.copy(overviewFrame.center);
   controls.update();
 
-  var OVERVIEW_FOG_DENSITY = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
-  scene.fog.density = OVERVIEW_FOG_DENSITY;
+  scene.fog.density = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
 
   // ---- UI: stat rail -----------------------------------------------------
   var statRail = document.getElementById("stat-rail");
@@ -503,8 +502,7 @@
   camera.position.copy(overviewFrame.camPos);
   controls.target.copy(overviewFrame.center);
   controls.update();
-  OVERVIEW_FOG_DENSITY = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
-  scene.fog.density = OVERVIEW_FOG_DENSITY;
+  scene.fog.density = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
 
   function setActiveChip(id){
     overviewChip.classList.toggle("active", id === null);
@@ -611,8 +609,10 @@
       miny:b.miny*ex, maxy:b.maxy*ex
     };
     var frame = frameBox(currentFramingBox, focusReserveFrac);
+    // fog density is not set here: it's calibrated to the camera's distance
+    // from its target, so it has to travel with the camera. animate() drives
+    // it for the duration of the fly-to and lands on this frame's value.
     flyTo(frame.camPos, frame.center, 950);
-    scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
 
     exagNote.textContent = "elevation exaggerated ×" + Math.round(ex);
   }
@@ -636,8 +636,8 @@
     overviewGrid.material.opacity = 0.35;
 
     overviewFrame = computeOverviewFrame();
-    OVERVIEW_FOG_DENSITY = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
-    scene.fog.density = OVERVIEW_FOG_DENSITY;
+    // same as focusLeg: animate() carries the fog out with the camera rather
+    // than snapping to the overview density while it's still zoomed in
     flyTo(overviewFrame.camPos, overviewFrame.center, 950);
     activeLegId = null;
     setActiveChip(null);
@@ -671,6 +671,16 @@
         camera.position.lerpVectors(tweenState.fromPos, tweenState.toPos, e);
         controls.target.lerpVectors(tweenState.fromTarget, tweenState.toTarget, e);
       }
+      // Fog travels with the camera. fogDensityForCamDist() returns a density
+      // calibrated so density x distance lands around 0.6 at the framing
+      // distance it's given, so applying the *destination* density while the
+      // camera is still at overview range (roughly 5x further out) puts that
+      // product near 3 — and FogExp2 squares it, fogging the route ~100% into
+      // the background colour. That read as the day's segment starting black
+      // and fading in over the whole flight. Deriving it from where the
+      // camera actually is each frame starts at the current correct value and
+      // lands exactly on the destination one.
+      scene.fog.density = fogDensityForCamDist(camera.position.distanceTo(controls.target));
     }
 
     if (fadeTweens.length){

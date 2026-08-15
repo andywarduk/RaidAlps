@@ -313,13 +313,32 @@ in a logical sense — CSS doesn't care about that, only about specificity
   time) inline elevation reveal. The elevation pill is now
   `position:absolute` specifically so it can never again perturb the
   label's own measured size — don't put it back in normal flow.
-- The focused day appearing to fade in from nothing when you zoom into it
-  from the overview, despite already being fully coloured there: **fixed**.
-  `focusLeg()` rebuilds the day's group at higher fidelity, and it used to
-  `setGroupOpacity(group, 0)` and fade `0 -> 1` unconditionally, so the day
-  blinked out and re-appeared. It now carries the outgoing group's
-  `currentOpacity()` across the swap — exactly what the sibling legs in the
-  same function already did — which is a no-op coming from the overview
-  (already 1) and still runs the real `0.22 -> 1` reveal coming from
-  another focused day. If you touch this, check *both* entry paths: the
-  bug was invisible from the day-to-day path.
+- The focused day appearing to start black and fade in when you zoom into
+  it from the overview, despite already being fully coloured there:
+  **fixed — it had two independent causes**, worth knowing about because
+  fixing the first one alone does not make the symptom go away.
+  1. *Opacity.* `focusLeg()` rebuilds the day's group at higher fidelity,
+     and it used to `setGroupOpacity(group, 0)` and fade `0 -> 1`
+     unconditionally, so the day blinked out and re-appeared. It now
+     carries the outgoing group's `currentOpacity()` across the swap —
+     exactly what the sibling legs in the same function already did — a
+     no-op coming from the overview (already 1) while still running the
+     real `0.22 -> 1` reveal coming from another focused day.
+  2. *Fog, which was the dominant one.* `focusLeg()`/`goOverview()` set
+     `scene.fog.density` to the **destination** density immediately, at the
+     start of a 950 ms `flyTo`. `fogDensityForCamDist()` is calibrated so
+     density x distance lands near 0.6 at the distance it's given, so
+     applying the focus density while the camera was still ~5x further out
+     put that product near 3 — and `FogExp2` squares it. Measured fog
+     factor at the first frame was **0.9999**: the route rendered as
+     essentially pure background colour, then emerged over the flight.
+     `animate()` now derives the density from where the camera actually is
+     on each frame of a tween, starting at the current correct value and
+     landing exactly on the destination one (verified: same resting
+     densities as before, 1.177e-6 overview / 6.642e-6 Day 1).
+
+  Two lessons for next time. Opacity and fog produce a similar-looking
+  fade, but *transparent* vs *black* tells them apart — black means fog,
+  since the fog colour is `--bg`. And anything derived from camera distance
+  has to be animated alongside a `flyTo`, not snapped at the start of one;
+  check `fogDensityForCamDist` callers if you add another.
