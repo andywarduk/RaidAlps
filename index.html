@@ -1935,8 +1935,8 @@ body{
   // outward until they clear each other, rather than piling onto one spot
   var LABEL_CANDIDATES = (function(){
     var list = [];
-    var radii = [26,42,60,80,102,126,152,180];
-    var perRing = [6,8,10,12,14,14,16,16];
+    var radii = [26,42,60,80,102,126,152,180,215,255];
+    var perRing = [6,8,10,12,14,14,16,16,18,20];
     for (var ri=0; ri<radii.length; ri++){
       var r = radii[ri], n = perRing[ri];
       for (var k=0; k<n; k++){
@@ -1962,6 +1962,27 @@ body{
       if (p[0]>=bx0 && p[0]<=bx1 && p[1]>=by0 && p[1]<=by1) return true;
     }
     return false;
+  }
+  function boxInViewport(box, vw, vh, margin){
+    return box.cx-box.hw >= margin && box.cx+box.hw <= vw-margin &&
+           box.cy-box.hh >= margin && box.cy+box.hh <= vh-margin;
+  }
+  function boxOverlapsSegment(box, x1,y1,x2,y2, clearance){
+    var bx0=box.cx-box.hw-clearance, bx1=box.cx+box.hw+clearance;
+    var by0=box.cy-box.hh-clearance, by1=box.cy+box.hh+clearance;
+    var steps = 12;
+    for (var i=0;i<=steps;i++){
+      var t = i/steps, x = x1+(x2-x1)*t, y = y1+(y2-y1)*t;
+      if (x>=bx0 && x<=bx1 && y>=by0 && y<=by1) return true;
+    }
+    return false;
+  }
+  function segmentsIntersect(ax,ay,bx,by,cx,cy,dx,dy){
+    var d1 = (dx-cx)*(ay-cy) - (dy-cy)*(ax-cx);
+    var d2 = (dx-cx)*(by-cy) - (dy-cy)*(bx-cx);
+    var d3 = (bx-ax)*(cy-ay) - (by-ay)*(cx-ax);
+    var d4 = (bx-ax)*(dy-ay) - (by-ay)*(dx-ax);
+    return ((d1>0&&d2<0)||(d1<0&&d2>0)) && ((d3>0&&d4<0)||(d3<0&&d4>0));
   }
   // point where the segment from (cx,cy) toward (tx,ty) exits the box —
   // used so the leader line touches the label's edge, not its middle
@@ -2027,6 +2048,7 @@ body{
       });
 
       var placedBoxes = hudBoxes.slice();
+      var placedLines = [];
       labels.forEach(function(l){
         var sp = projectToScreen(l.worldPos, halfW, halfH);
         if (sp.behind){
@@ -2042,39 +2064,51 @@ body{
         if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
 
         var hw = l.w/2 + LABEL_PAD, hh = l.h/2 + LABEL_PAD;
-        var chosen = null;
-        // pass 1: avoid both other labels and the path itself
-        for (var c=0; c<LABEL_CANDIDATES.length && !chosen; c++){
+        var vw = halfW*2, vh = halfH*2;
+
+        // Score every candidate ring position and keep the best, rather than
+        // a fixed pass order that can exhaust its search (dense clusters)
+        // and fall through to a completely unchecked placement. A box
+        // overlapping another box/line, or a line piercing a box, makes
+        // text unreadable — heavily penalized. A crossed line or a line
+        // grazing the path is only cosmetic — penalized lightly so it's
+        // still preferred over the unreadable cases, but yields to a
+        // perfect (score 0) spot if one exists.
+        var chosen = null, chosenEdge = null, bestScore = Infinity;
+        for (var c=0; c<LABEL_CANDIDATES.length && bestScore>0; c++){
           var cx = l.ax + LABEL_CANDIDATES[c][0], cy = l.ay + LABEL_CANDIDATES[c][1];
           var box = { cx:cx, cy:cy, hw:hw, hh:hh };
-          var collidesLabels = placedBoxes.some(function(b){ return boxesOverlap(box,b,4); });
-          if (!collidesLabels && !boxOverlapsPath(box, pathScreen, PATH_CLEARANCE)) chosen = box;
-        }
-        // pass 2 (dense clusters): the path can't always be dodged too, but
-        // two labels must never overlap each other — keep expanding the ring
-        if (!chosen){
-          for (var c2=0; c2<LABEL_CANDIDATES.length && !chosen; c2++){
-            var cx2 = l.ax + LABEL_CANDIDATES[c2][0], cy2 = l.ay + LABEL_CANDIDATES[c2][1];
-            var box2 = { cx:cx2, cy:cy2, hw:hw, hh:hh };
-            if (!placedBoxes.some(function(b){ return boxesOverlap(box2,b,4); })) chosen = box2;
-          }
+          if (!boxInViewport(box, vw, vh, 4)) continue;
+          var edge = boxEdgeToward(cx,cy,hw,hh,l.ax,l.ay);
+          var score = 0;
+          if (placedBoxes.some(function(b){ return boxesOverlap(box,b,4); })) score += 1000;
+          if (placedLines.some(function(ln){ return boxOverlapsSegment(box, ln.x1,ln.y1,ln.x2,ln.y2, PATH_CLEARANCE); })) score += 1000;
+          if (placedBoxes.some(function(b){ return boxOverlapsSegment(b, l.ax,l.ay,edge[0],edge[1], PATH_CLEARANCE); })) score += 1000;
+          if (placedLines.some(function(ln){ return segmentsIntersect(l.ax,l.ay,edge[0],edge[1], ln.x1,ln.y1,ln.x2,ln.y2); })) score += 10;
+          if (boxOverlapsPath(box, pathScreen, PATH_CLEARANCE)) score += 1;
+          if (score < bestScore){ bestScore = score; chosen = box; chosenEdge = edge; }
         }
         if (!chosen){
-          var fx = LABEL_CANDIDATES[LABEL_CANDIDATES.length-1];
+          var fx = LABEL_CANDIDATES[0];
           chosen = { cx:l.ax+fx[0], cy:l.ay+fx[1], hw:hw, hh:hh };
         }
+        // last-resort safety net: never let a label render partly off-screen
+        chosen.cx = Math.min(Math.max(chosen.cx, hw+4), vw-hw-4);
+        chosen.cy = Math.min(Math.max(chosen.cy, hh+4), vh-hh-4);
+        if (!chosenEdge) chosenEdge = boxEdgeToward(chosen.cx, chosen.cy, hw, hh, l.ax, l.ay);
         placedBoxes.push(chosen);
         l.cx = chosen.cx; l.cy = chosen.cy;
 
         l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
         l.el.style.opacity = groupOpacity;
 
-        var edge = boxEdgeToward(chosen.cx, chosen.cy, chosen.hw, chosen.hh, l.ax, l.ay);
+        var edge = chosenEdge;
         l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
         l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
         l.line.style.opacity = groupOpacity;
         l.dot.setAttribute("cx", l.ax); l.dot.setAttribute("cy", l.ay);
         l.dot.style.opacity = groupOpacity;
+        placedLines.push({ x1:l.ax, y1:l.ay, x2:edge[0], y2:edge[1] });
       });
     });
   }
