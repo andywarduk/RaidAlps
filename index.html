@@ -341,6 +341,13 @@ body{
 }
 .col-label .col-label-alt{
   display:inline-block;
+  /* flex items default to min-width:auto, which lets this span's own
+     min-content width (its clipped "1,968 m" text) fight the max-width:0
+     cap every layout pass — the two competing constraints made the
+     resolved width flicker frame to frame even while not hovered, which
+     fed straight into the label placement search and made it visibly
+     jump between ring candidates. min-width:0 removes that tug-of-war. */
+  min-width:0;
   max-width:0;
   opacity:0;
   overflow:hidden;
@@ -2140,20 +2147,29 @@ body{
 
         // re-measure live rather than trust the size cached at creation —
         // sandboxed frames don't reliably signal when the custom webfont
-        // has swapped in, and a stale (too-narrow) box lets labels overlap
-        var liveRect = l.el.getBoundingClientRect();
-        if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
+        // has swapped in, and a stale (too-narrow) box lets labels overlap.
+        // Skipped while hovered: the elevation reveal grows this element
+        // through a transition, and feeding that live-changing size into
+        // placement below (ring search AND the viewport clamp) made the
+        // label visibly jump — both now keep using the size from just
+        // before the hover started, so hovering only ever grows the box
+        // in place rather than relocating it.
+        var isHovered = l.el.matches(":hover");
+        if (!isHovered){
+          var liveRect = l.el.getBoundingClientRect();
+          if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
+        }
 
         var hw = l.w/2 + LABEL_PAD, hh = l.h/2 + LABEL_PAD;
         var vw = halfW*2, vh = halfH*2;
 
-        // Score every candidate ring position and keep the best, rather than
-        // a fixed pass order that can exhaust its search (dense clusters)
-        // and fall through to a completely unchecked placement. A box
-        // overlapping another box/line, or a line piercing a box, makes
-        // text unreadable — heavily penalized. A crossed line or a line
-        // grazing the path is only cosmetic — penalized lightly so it's
-        // still preferred over the unreadable cases, but yields to a
+        // Score every candidate ring position and keep the best, rather
+        // than a fixed pass order that can exhaust its search (dense
+        // clusters) and fall through to a completely unchecked placement.
+        // A box overlapping another box/line, or a line piercing a box,
+        // makes text unreadable — heavily penalized. A crossed line or a
+        // line grazing the path is only cosmetic — penalized lightly so
+        // it's still preferred over the unreadable cases, but yields to a
         // perfect (score 0) spot if one exists.
         var chosen = null, chosenEdge = null, bestScore = Infinity;
         for (var c=0; c<LABEL_CANDIDATES.length && bestScore>0; c++){
