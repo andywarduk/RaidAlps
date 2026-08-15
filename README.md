@@ -1,5 +1,7 @@
 # Raid Alps
 
+Live: **https://andywarduk.github.io/RaidAlps/**
+
 A self-contained 3D visualization of a real 7-day, 427-mile cycling
 traverse of the French Alps — Thonon-les-Bains to Nice, 26 named cols,
 16,106 m of climbing. Built with Three.js, rendered client-side from an
@@ -18,6 +20,21 @@ then open `http://localhost:8123/src/index.html`.
 Drag to orbit, scroll to zoom, click a day to focus on it. Focusing a day
 shows labels for its named cols, each with a leader line to a marker on
 the route.
+
+## GitHub Pages
+
+Deployed at **https://andywarduk.github.io/RaidAlps/**.
+`.github/workflows/deploy-pages.yml` deploys `src/` to GitHub Pages on
+every push to `main` (also runnable manually via the Actions tab). It
+runs `./build.sh` first as a sanity check — a broken `src/` fails the
+build and blocks the deploy — then publishes `src/` itself, not the
+bundled `build/artifact/index.html`; GitHub Pages is a real webserver
+with no CSP restriction, so the plain multi-file version is simpler and
+loads slightly faster (no ~940 KB single-file download, no base64
+inflation on the fonts).
+
+Repo setting this workflow depends on (already set): **Settings → Pages
+→ Build and deployment → Source = GitHub Actions**.
 
 ## Project layout
 

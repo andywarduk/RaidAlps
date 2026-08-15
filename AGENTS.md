@@ -66,7 +66,12 @@ gitignored). Trust `src/` as ground truth.
    see README) — and only after running `./build.sh` fresh. If the URL is
    ever lost, `Artifact` with `action: "list"` will find it again by title
    ("Raid Alps").
-7. The user has occasionally asked to check things on a real iPhone
+7. There's a second, independent publish target: pushing to `main` also
+   auto-deploys `src/` (not the bundled artifact) to GitHub Pages via
+   `.github/workflows/deploy-pages.yml` — see README's "GitHub Pages"
+   section. Nothing extra to do for this one beyond pushing; it's not
+   something you trigger manually the way the Artifact publish is.
+8. The user has occasionally asked to check things on a real iPhone
    Simulator too, in addition to the desktop browser tool. See "Testing
    tooling gotchas" below before doing that — it's not as straightforward
    as it sounds.
