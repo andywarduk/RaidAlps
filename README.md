@@ -60,10 +60,6 @@ run, never committed):
   multi-file static site, no inlining needed there since a real server
   doesn't have the Artifact CSP restriction.
 
-`tools/split_sources.py` is the one-time script that originally produced
-the `src/` layout from a prior hand-bundled `index.html`; it's not part
-of the regular workflow, kept only as a reference for how the split was
-derived.
 
 ## Where the route data comes from
 
