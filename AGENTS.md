@@ -9,18 +9,21 @@ mistakes already made and fixed, so they don't get reintroduced.
 ## What this is, in one line
 
 A Three.js app that renders a real 7-day Alpine cycling route in 3D, with a
-responsive HTML/CSS HUD on top. Editable source lives under `src/` (plain
-`.css`/`.js`/font files, a normal multi-file skeleton page); the root
-`index.html` is a generated build artifact, everything inlined into one
-~940 KB file — see README's "Project layout" section for why (short version:
-Claude Artifacts, how this is published, block all external requests, so the
-published page has to be one self-contained file).
+responsive HTML/CSS HUD on top. Editable source lives under `src/` — a
+normal multi-file page (`.css`/`.js`/font files, a real `<!DOCTYPE html>`
+document). Nothing under `src/` is shipped as-is; `./build.sh` produces two
+outputs under `build/` (gitignored, regenerated every run, never committed):
+`build/artifact/index.html` (everything inlined into one ~940 KB file — see
+README's "Project layout" for why: Claude Artifacts, how this is published,
+block all external requests, so the published page has to be one
+self-contained file) and `build/webserver.tgz` (src/'s contents tarred for
+dropping onto a real webserver, no inlining needed there).
 
-**This split is recent.** If anything below describes `index.html` as *the*
-source, or a fix mentions a line number in it, that's stale — the same code
-now lives under `src/`, unchanged in substance, just relocated. Trust
-`src/` as ground truth over anything that talks about editing `index.html`
-directly.
+**This split is recent.** If anything below talks about editing a root
+`index.html` directly, or mentions a line number in one, that's stale — the
+same code now lives under `src/`, unchanged in substance, just relocated
+(and there is no committed root `index.html` at all any more — `build/` is
+gitignored). Trust `src/` as ground truth.
 
 ## Workflow: how this project actually gets worked on
 
@@ -30,39 +33,39 @@ directly.
    these exactly like any other web source files.
 2. Serve `src/` locally and check it in a real browser before shipping:
    ```bash
-   python3 -m http.server 8123
+   ./serve.sh
    ```
-   then open `http://localhost:8123/src/index.html` in the browser tool —
-   note the `/src/` in the path, `/index.html` at that port is the *stale*
-   bundled copy until you rebuild it (next step). Always kill the server
-   when done (`pkill -f "http.server 8123"`).
+   then open `http://localhost:8123/src/index.html` in the browser tool.
+   Always kill the server when done (`pkill -f "http.server 8123"`).
 3. **Actually look at it.** This app is almost entirely CSS layout and 3D
    camera math; static code review misses real bugs here (see "CSS
    source-order bug" below, which *read* correct and wasn't). Screenshot
    after every change, at more than one viewport size — at minimum a
    desktop width (~900×550) and a narrow phone portrait (~390×844).
-4. Before committing or publishing, rebuild the root `index.html` from
-   `src/`:
+4. Before committing or publishing, rebuild `build/` from `src/`:
    ```bash
-   python3 tools/build.py
+   ./build.sh
    ```
    Do this *every time* `src/` changes and you're about to commit/publish —
-   the root `index.html` is not auto-synced, and publishing a stale one
-   will ship an old version without whatever you just changed.
+   `build/` is not auto-synced, and publishing a stale
+   `build/artifact/index.html` will ship an old version without whatever
+   you just changed.
 5. Commit only when asked, using the repo's existing commit-message style:
    a one-line summary, then a paragraph explaining *why*, not just what
    (`git log` has ~30 examples). Always `Co-Authored-By: Claude Sonnet 5
-   <noreply@anthropic.com>`.
+   <noreply@anthropic.com>`. `build/` is gitignored — there is nothing
+   under it to ever stage or commit.
 6. Publish with the `Artifact` tool, passing the **existing** artifact URL
    so it updates in place rather than forking a new one:
    ```
    url: https://claude.ai/code/artifact/a7e256fe-a64f-4a03-86c8-8edf63991aac
    favicon: 🚵   (keep this — same artifact, same favicon, always)
    ```
-   `file_path` for that call is the root `index.html` — the bundled one,
-   never `src/index.html` (Artifacts can't load its separate CSS/JS/font
-   files, see README). If the URL is ever lost, `Artifact` with
-   `action: "list"` will find it again by title ("Raid Alps").
+   `file_path` for that call is `build/artifact/index.html` — never
+   `src/index.html` (Artifacts can't load its separate CSS/JS/font files,
+   see README) — and only after running `./build.sh` fresh. If the URL is
+   ever lost, `Artifact` with `action: "list"` will find it again by title
+   ("Raid Alps").
 7. The user has occasionally asked to check things on a real iPhone
    Simulator too, in addition to the desktop browser tool. See "Testing
    tooling gotchas" below before doing that — it's not as straightforward
@@ -77,8 +80,9 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   `.stat-rail`, `.chip-rail`, `.detail-card`, `.col-label*`), then two
   `@media` breakpoints (see "Responsive layout" below), then the loading
   screen. Fonts are real `.woff2` files under `src/fonts/`, referenced by
-  relative `url()` — `tools/build.py` is what turns those into the base64
-  data URIs the bundled `index.html` actually ships.
+  relative `url()` — `tools/build.py` (invoked via `./build.sh`) is what
+  turns those into the base64 data URIs `build/artifact/index.html`
+  actually ships.
 - `src/vendor/three.min.js`, `src/vendor/OrbitControls.js`: vendored,
   not app code — don't try to read or edit these.
 - `src/data/route-data.js`: sets `window.ROUTE_DATA = {...}`, the embedded

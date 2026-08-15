@@ -1,22 +1,30 @@
 #!/usr/bin/env python3
-"""Bundles src/* into the single self-contained index.html at repo root.
+"""Builds two deployable outputs from src/, both under build/.
 
-Claude Artifacts (how this app is published/hosted) enforce a strict CSP
-that blocks requests to any other file, even same-origin — so the
-published page has to be one file with CSS, vendor JS, fonts, and the
-route dataset all inlined. src/ is the actual editable source (plain
-CSS/JS files, a normal skeleton HTML, real font files); this script does
-the inlining. Run it after any change under src/, before publishing.
+  build/artifact/index.html  — single self-contained file, CSS/vendor JS/
+    fonts/route data all inlined. Claude Artifacts (how this app is also
+    published/hosted) enforce a strict CSP that blocks requests to any
+    other file, even same-origin, so this is what gets passed to the
+    Artifact tool.
+  build/webserver.tgz        — src/ as a normal multi-file static site
+    (real HTTP requests, no inlining), tarred+gzipped for dropping
+    straight onto a real webserver's document root.
+
+src/ is the actual editable source (plain CSS/JS files, a normal skeleton
+HTML, real font files) either way. Run this after any change under src/,
+before committing or publishing.
 
 Usage:
     python3 tools/build.py
 """
 import base64
 import re
+import tarfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
+BUILD = ROOT / "build"
 
 
 def read(rel_path):
@@ -41,8 +49,27 @@ def inline_fonts(css):
     return new_css
 
 
+def strip_wrapper(html):
+    # src/index.html is a proper document (<!DOCTYPE>, <html>, <head>,
+    # <body>) for a clean standalone dev experience. The bundled index.html
+    # is published as a Claude Artifact, which supplies its own
+    # <!doctype html>...<head>...<body> wrapper at publish time and expects
+    # a bare content fragment — submitting one of our own risks duplicate/
+    # nested tags. So the wrapper only ever exists in src/; strip it back
+    # out here rather than duplicating the skeleton in two places.
+    wrapper_lines = [
+        '<!DOCTYPE html>\n', '<html lang="en">\n', '<head>\n',
+        '</head>\n', '<body>\n', '</body>\n', '</html>\n',
+    ]
+    for tag in wrapper_lines:
+        if tag not in html:
+            raise SystemExit(f"src/index.html is missing expected wrapper line: {tag!r}")
+        html = html.replace(tag, "", 1)
+    return html
+
+
 def main():
-    skeleton = read("index.html")
+    skeleton = strip_wrapper(read("index.html"))
     css = inline_fonts(read("style.css"))
     three_js = read("vendor/three.min.js").rstrip("\n")
     orbit_js = read("vendor/OrbitControls.js").rstrip("\n")
@@ -63,9 +90,26 @@ def main():
             raise SystemExit(f"src/index.html is missing expected tag: {needle!r}")
         out = out.replace(needle, replacement, 1)
 
-    out_path = ROOT / "index.html"
+    artifact_dir = BUILD / "artifact"
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    out_path = artifact_dir / "index.html"
     out_path.write_text(out, encoding="utf-8")
     print(f"wrote {out_path} ({len(out):,} bytes)")
+
+    webserver_tgz(BUILD / "webserver.tgz")
+
+
+def webserver_tgz(out_path):
+    # arcname=file.relative_to(SRC) so the archive's paths are rooted at
+    # src/'s contents directly (index.html, style.css, ...) rather than
+    # nested under a "src/" directory — extract onto a webserver's
+    # document root and it's ready to serve as-is.
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    with tarfile.open(out_path, "w:gz") as tar:
+        for file in sorted(SRC.rglob("*")):
+            if file.is_file():
+                tar.add(file, arcname=file.relative_to(SRC))
+    print(f"wrote {out_path} ({out_path.stat().st_size:,} bytes)")
 
 
 if __name__ == "__main__":

@@ -7,13 +7,13 @@ embedded route dataset sourced from the rider's own Strava activities.
 
 ## Running it
 
-Open `index.html` directly in a browser, or serve the directory:
+For local hacking, serve `src/` directly:
 
 ```bash
-python3 -m http.server 8000
+./serve.sh
 ```
 
-then visit `http://localhost:8000/`.
+then open `http://localhost:8123/src/index.html`.
 
 Drag to orbit, scroll to zoom, click a day to focus on it. Focusing a day
 shows labels for its named cols, each with a leader line to a marker on
@@ -21,20 +21,11 @@ the route.
 
 ## Project layout
 
-`index.html` at the repo root is a **build artifact** — everything CSS,
-JS, fonts, and route data inlined into one ~940 KB file. That's not
-stylistic; it's required. This app is published as a Claude Artifact,
-and Artifacts enforce a strict CSP that blocks requests to any other
-file, even same-origin — the published page has to be one file with
-nothing external. Editing that inlined file directly still works fine
-for local hacking, but it isn't the source of truth for anything that
-gets shipped.
-
-The actual editable source lives under `src/`:
+The editable source lives under `src/`:
 
 ```
 src/
-  index.html          skeleton — links/scripts point at the files below
+  index.html          normal HTML document — <link>/<script src> to the files below
   style.css           all CSS, incl. @font-face rules (real font files)
   fonts/*.woff2        real font files, not base64 blobs
   vendor/three.min.js, vendor/OrbitControls.js
@@ -42,32 +33,42 @@ src/
   data/route-data.js   window.ROUTE_DATA — see below for provenance
 ```
 
-`src/index.html` is a normal multi-file page — open it via a local
-server (`python3 -m http.server` from the repo root, then
-`/src/index.html`) and every file loads with an ordinary HTTP request,
-same as any other static site. It will *not* work published as an
-Artifact or opened via `file://` in some browsers, for the same CSP/
-external-request reasons as above.
+`src/index.html` is a normal multi-file page — every file loads with an
+ordinary HTTP request, same as any other static site.
 
-After editing anything under `src/`, rebuild the root `index.html`
-before committing or publishing:
+Nothing under `src/` is what actually gets shipped, though — run the
+build before committing or publishing:
 
 ```bash
-python3 tools/build.py
+./build.sh
 ```
 
-This inlines `style.css` (base64-encoding the font files into
-`@font-face` data URIs), both vendor scripts, `route-data.js`, and
-`app.js` into one file, in the same structure the hand-bundled version
-used before the split. `tools/split_sources.py` is the one-time script
-that produced the original `src/` layout from that bundled file — it's
-not part of the regular workflow, kept only as a reference for how the
-split was derived.
+which produces two outputs under `build/` (gitignored, regenerated each
+run, never committed):
+
+- **`build/artifact/index.html`** — everything (CSS, both vendor
+  scripts, the fonts, the route dataset) inlined into one ~940 KB
+  self-contained file. This is what gets published as a Claude
+  Artifact: Artifacts enforce a strict CSP that blocks requests to any
+  other file, even same-origin, so the published page has no choice
+  but to be one file with nothing external. Fonts get base64-encoded
+  into `@font-face` data URIs as part of this step.
+- **`build/webserver.tgz`** — `src/`'s contents (not the `src/`
+  directory itself — the archive's paths are rooted at `index.html`,
+  `style.css`, etc. directly) tarred and gzipped, ready to extract
+  straight onto a real webserver's document root and serve as a normal
+  multi-file static site, no inlining needed there since a real server
+  doesn't have the Artifact CSP restriction.
+
+`tools/split_sources.py` is the one-time script that originally produced
+the `src/` layout from a prior hand-bundled `index.html`; it's not part
+of the regular workflow, kept only as a reference for how the split was
+derived.
 
 ## Where the route data comes from
 
 `src/data/route-data.js` sets a `window.ROUTE_DATA` object (inlined into
-the bundled `index.html` by `tools/build.py`): per-day polylines
+`build/artifact/index.html` by `./build.sh`): per-day polylines
 (`[x, altitude, z]` points in a local, unscaled coordinate system — a
 flat equirectangular projection referenced to the trip's centroid, not
 tied to true north) plus each day's list of named cols in ride order.
@@ -135,12 +136,13 @@ in the working directory — see the module docstring):
 
 ```bash
 python3 tools/rebuild_from_strava.py
-python3 tools/build.py
+./build.sh
 ```
 
 The first rewrites `src/data/route-data.js` and prints each col's
 chosen point, altitude, and error against its recorded elevation; the
-second folds it into the bundled `index.html`.
+second folds it into `build/artifact/index.html` (and rebuilds
+`build/webserver.tgz`).
 
 ## Rendering notes
 
