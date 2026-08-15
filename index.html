@@ -156,10 +156,32 @@ body{
 }
 
 .hud-bottom{
-  display:flex;
-  flex-direction:column;
-  gap:14px;
-  align-items:flex-start;
+  display:grid;
+  grid-template-columns:1fr auto;
+  grid-template-areas:
+    "detail detail"
+    "chips  exag"
+    "chips  hint";
+  column-gap:12px;
+  row-gap:6px;
+  align-items:end;
+}
+#detail-card{ grid-area:detail; }
+#chip-rail{ grid-area:chips; align-self:end; min-width:0; }
+#exag-note{ grid-area:exag; justify-self:end; }
+#interaction-hint{ grid-area:hint; justify-self:end; }
+
+@media (max-width:640px){
+  .hud-bottom{
+    grid-template-columns:1fr;
+    grid-template-areas:
+      "detail"
+      "exag"
+      "chips"
+      "hint";
+    row-gap:10px;
+  }
+  #exag-note, #interaction-hint{ justify-self:start; }
 }
 
 .detail-card{
@@ -410,20 +432,16 @@ body{
   <div class="hud-top">
     <div class="masthead">
       <div class="eyebrow">Cycling Expedition &middot; 26 Jul&ndash;1 Aug 2026</div>
-      <h1 class="title">Raid Alps</h1>
+      <h1 id="page-title" class="title">Raid Alps</h1>
       <p class="sub">Seven climbing days across the French Alps &mdash; from Thonon-les-Bains to Nice &mdash; 26 named cols and 16,106&nbsp;m of climbing in one week.</p>
     </div>
     <div id="stat-rail" class="stat-rail"></div>
   </div>
   <div class="hud-bottom">
     <div id="detail-card" class="detail-card"></div>
-    <div style="display:flex;justify-content:space-between;align-items:flex-end;width:100%;gap:12px;">
-      <div id="chip-rail" class="chip-rail"></div>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:4px;">
-        <div id="exag-note" class="hint"></div>
-        <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom &middot; click a day to focus</div>
-      </div>
-    </div>
+    <div id="chip-rail" class="chip-rail"></div>
+    <div id="exag-note" class="hint"></div>
+    <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom &middot; click a day to focus</div>
   </div>
 </div>
 
@@ -1921,6 +1939,7 @@ body{
   // ---- focus / overview transitions ----------------------------------------
   var activeLegId = null;
   var exagNote = document.getElementById("exag-note");
+  var pageTitle = document.getElementById("page-title");
 
   // "scroll to zoom" / "click" describe a mouse, not a finger — swap in
   // touch-appropriate wording on devices whose primary pointer is coarse
@@ -1985,7 +2004,8 @@ body{
     activeLegId = id;
     setActiveChip(id);
     showDetail(leg);
-    exagNote.textContent = "elevation exaggerated ×" + Math.round(ex) + " — focused on " + leg.label;
+    exagNote.textContent = "elevation exaggerated ×" + Math.round(ex);
+    pageTitle.textContent = "Raid Alps — " + leg.label;
   }
 
   function goOverview(){
@@ -2010,7 +2030,8 @@ body{
     activeLegId = null;
     setActiveChip(null);
     hideDetail();
-    exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX) + " — full trip overview";
+    exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
+    pageTitle.textContent = "Raid Alps";
   }
 
   function currentOpacity(group){
@@ -2297,7 +2318,7 @@ body{
   });
 
   // ---- init note ---------------------------------------------------------
-  exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX) + " — full trip overview";
+  exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
 
   var loading = document.getElementById("loading");
   if (loading){
