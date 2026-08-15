@@ -297,7 +297,7 @@ body{
   height:100%;
 }
 .col-leader-lines line{
-  stroke:var(--label-color,var(--text-muted));
+  stroke:var(--text-secondary);
   stroke-width:1;
   opacity:0;
   transition:opacity 180ms ease;
@@ -1653,7 +1653,6 @@ body{
       var rect = el.getBoundingClientRect();
 
       var line = document.createElementNS(SVGNS, "line");
-      line.style.setProperty("--label-color", leg.color);
       leaderSvg.appendChild(line);
       var dot = document.createElementNS(SVGNS, "circle");
       dot.setAttribute("r", "2.5");
@@ -2102,7 +2101,10 @@ body{
         l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
         l.el.style.opacity = groupOpacity;
 
-        var edge = chosenEdge;
+        // chosenEdge targets the padded collision box (LABEL_PAD bigger than
+        // the label so neighbors keep a margin) — recompute against the
+        // label's actual rendered size so the line reaches its edge exactly
+        var edge = boxEdgeToward(chosen.cx, chosen.cy, l.w/2, l.h/2, l.ax, l.ay);
         l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
         l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
         l.line.style.opacity = groupOpacity;
