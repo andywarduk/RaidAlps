@@ -1,0 +1,448 @@
+:root{
+  --bg:#0b0f14;
+  --panel:rgba(16,22,29,0.82);
+  --panel-solid:#10161d;
+  --hairline:rgba(255,255,255,0.09);
+  --hairline-strong:rgba(255,255,255,0.16);
+  --text-primary:#edf2f6;
+  --text-secondary:#93a6b8;
+  --text-muted:#55677a;
+  --day-1:#3987e5;
+  --day-2:#d95926;
+  --day-3:#199e70;
+  --day-4:#c98500;
+  --day-5:#d55181;
+  --day-6:#008300;
+  --day-7:#9085e9;
+}
+
+@font-face{
+  font-family:"Bebas";
+  src:url("fonts/bebas-400.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:"JBMono";
+  src:url("fonts/jbmono-400.woff2") format("woff2");
+  font-weight:400;
+  font-style:normal;
+  font-display:swap;
+}
+@font-face{
+  font-family:"JBMono";
+  src:url("fonts/jbmono-600.woff2") format("woff2");
+  font-weight:600;
+  font-style:normal;
+  font-display:swap;
+}
+
+*{box-sizing:border-box;}
+html,body{
+  margin:0;
+  padding:0;
+  width:100%;
+  height:100%;
+  background:var(--bg);
+  color:var(--text-primary);
+  overflow:hidden;
+  font-family:"JBMono", ui-monospace, monospace;
+}
+body{
+  color-scheme:dark;
+}
+
+#scene-root{
+  position:fixed;
+  inset:0;
+}
+#scene-root canvas{
+  display:block;
+  width:100%;
+  height:100%;
+  touch-action:none;
+}
+
+.hud{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  display:flex;
+  flex-direction:column;
+  justify-content:space-between;
+  padding:clamp(16px,3vw,34px);
+  z-index:5;
+}
+
+.hud-top{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:16px;
+}
+
+.masthead{
+  display:flex;
+  flex-direction:column;
+  gap:2px;
+}
+.eyebrow{
+  font-family:"JBMono",monospace;
+  font-weight:600;
+  font-size:10px;
+  letter-spacing:0.28em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+}
+.title{
+  font-family:"Bebas",sans-serif;
+  font-weight:400;
+  font-size:clamp(34px,5.4vw,58px);
+  line-height:0.92;
+  letter-spacing:0.02em;
+  text-wrap:balance;
+  color:var(--text-primary);
+  margin:2px 0 4px;
+}
+.sub{
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:13px;
+  line-height:1.5;
+  color:var(--text-secondary);
+  max-width:46ch;
+}
+
+.stat-rail{
+  display:flex;
+  gap:0;
+  border:1px solid var(--hairline);
+  background:var(--panel);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  pointer-events:auto;
+}
+.stat{
+  padding:10px 18px;
+  border-right:1px solid var(--hairline);
+  min-width:88px;
+}
+.stat:last-child{border-right:none;}
+.stat-label{
+  font-size:9px;
+  letter-spacing:0.18em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+  font-weight:600;
+  white-space:nowrap;
+}
+.stat-value{
+  font-family:"Bebas",sans-serif;
+  font-size:26px;
+  line-height:1.15;
+  letter-spacing:0.01em;
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+  white-space:nowrap;
+}
+.stat-value small{
+  font-family:"JBMono",monospace;
+  font-size:11px;
+  color:var(--text-secondary);
+  letter-spacing:0;
+  margin-left:2px;
+}
+
+.hud-bottom{
+  display:grid;
+  grid-template-columns:1fr auto;
+  grid-template-areas:
+    "detail detail"
+    "chips  exag"
+    "chips  hint";
+  column-gap:12px;
+  row-gap:6px;
+  align-items:end;
+}
+#detail-card{ grid-area:detail; }
+#chip-rail{ grid-area:chips; align-self:end; justify-self:start; min-width:0; }
+#exag-note{ grid-area:exag; justify-self:end; }
+#interaction-hint{ grid-area:hint; justify-self:end; }
+
+@media (max-width:640px){
+  .hud-bottom{
+    grid-template-columns:1fr;
+    grid-template-areas:
+      "exag"
+      "hint"
+      "detail"
+      "chips";
+    row-gap:10px;
+  }
+  #exag-note, #interaction-hint{ justify-self:start; }
+}
+
+.detail-card{
+  /* display:none by default rather than just opacity:0 — otherwise this
+     still reserves its full padded box (and, once a day's been viewed,
+     its stale content height) in the grid even in the overview, leaving
+     a large empty gap above the day pills where nothing is showing */
+  display:none;
+  pointer-events:auto;
+  border:1px solid var(--hairline);
+  background:var(--panel);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  padding:14px 18px;
+  max-width:min(420px,86vw);
+  opacity:0;
+  transform:translateY(6px);
+  transition:opacity 220ms ease, transform 220ms ease;
+}
+.detail-card.visible{
+  display:block;
+  opacity:1;
+  transform:translateY(0);
+}
+.detail-head{
+  display:flex;
+  align-items:baseline;
+  gap:10px;
+  margin-bottom:6px;
+}
+.detail-swatch{
+  width:10px;
+  height:10px;
+  border-radius:1px;
+  flex:none;
+}
+.detail-title{
+  font-family:"Bebas",sans-serif;
+  font-size:22px;
+  letter-spacing:0.01em;
+  color:var(--text-primary);
+}
+.detail-date{
+  font-size:10px;
+  color:var(--text-muted);
+  letter-spacing:0.08em;
+  text-transform:uppercase;
+}
+.detail-cols{
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  font-size:12.5px;
+  line-height:1.5;
+  color:var(--text-secondary);
+  margin-bottom:10px;
+}
+.detail-stats{
+  display:flex;
+  gap:20px;
+  flex-wrap:wrap;
+}
+.detail-stat-label{
+  font-size:9px;
+  letter-spacing:0.16em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+  font-weight:600;
+}
+.detail-stat-value{
+  font-family:"Bebas",sans-serif;
+  font-size:20px;
+  color:var(--text-primary);
+  font-variant-numeric:tabular-nums;
+}
+
+.chip-rail{
+  pointer-events:auto;
+  display:flex;
+  gap:1px;
+  border:1px solid var(--hairline);
+  background:var(--panel);
+  backdrop-filter:blur(10px);
+  -webkit-backdrop-filter:blur(10px);
+  overflow-x:auto;
+  max-width:100%;
+}
+.chip{
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--text-secondary);
+  font-family:"JBMono",monospace;
+  font-weight:600;
+  font-size:11px;
+  letter-spacing:0.08em;
+  padding:10px 14px;
+  display:flex;
+  align-items:center;
+  gap:8px;
+  cursor:pointer;
+  white-space:nowrap;
+  border-right:1px solid var(--hairline);
+  transition:background 120ms ease, color 120ms ease;
+}
+.chip:last-child{border-right:none;}
+.chip:hover{
+  background:rgba(255,255,255,0.05);
+  color:var(--text-primary);
+}
+.chip.active{
+  background:rgba(255,255,255,0.08);
+  color:var(--text-primary);
+}
+.chip .dot{
+  width:7px;
+  height:7px;
+  border-radius:50%;
+  flex:none;
+}
+.chip .overview-icon{
+  width:7px;
+  height:7px;
+  border:1.5px solid var(--text-secondary);
+  border-radius:50%;
+  flex:none;
+}
+
+.hint{
+  pointer-events:none;
+  font-size:10px;
+  letter-spacing:0.1em;
+  text-transform:uppercase;
+  color:var(--text-muted);
+}
+
+.col-leader-lines{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:4;
+  width:100%;
+  height:100%;
+}
+.col-leader-lines line{
+  stroke:var(--text-secondary);
+  stroke-width:1;
+  opacity:0;
+  transition:opacity 180ms ease;
+}
+.col-leader-lines circle{
+  fill:var(--label-color,var(--text-secondary));
+  opacity:0;
+  transition:opacity 180ms ease;
+}
+.col-labels{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:5;
+}
+.col-label{
+  position:absolute;
+  left:0;
+  top:0;
+  transform:translate(-50%,-50%);
+  display:flex;
+  align-items:center;
+  gap:5px;
+  font-family:"JBMono",monospace;
+  font-size:10px;
+  font-weight:600;
+  letter-spacing:0.05em;
+  text-transform:uppercase;
+  color:var(--text-primary);
+  background:var(--panel);
+  border:1px solid var(--hairline);
+  border-left:2px solid var(--label-color,var(--text-secondary));
+  padding:3px 8px 3px 6px;
+  white-space:nowrap;
+  backdrop-filter:blur(6px);
+  -webkit-backdrop-filter:blur(6px);
+  opacity:0;
+  transition:opacity 180ms ease;
+  will-change:transform,opacity;
+  /* iOS Safari only reliably fires a click on the first tap for elements
+     it considers interactive — cursor:pointer is the signal it checks,
+     even though nothing here actually uses a mouse cursor */
+  cursor:pointer;
+}
+.col-label .col-label-alt{
+  /* position:absolute takes this fully out of the document flow, so it
+     can NEVER affect .col-label's own measured size (getBoundingClientRect)
+     — not on hover, not mid-transition, regardless of timing. Earlier
+     attempts kept it in flex flow (clipped via max-width:0) and fought
+     flex's own min-width:auto sizing, which made the label's measured
+     width flicker frame to frame and fed straight into the placement
+     search, causing it to keep jumping between ring candidates. Taking
+     it out of flow entirely removes that whole class of bug at the root
+     instead of trying to out-time it. */
+  position:absolute;
+  left:50%;
+  top:100%;
+  margin-top:5px;
+  transform:translateX(-50%);
+  padding:3px 8px 3px 6px;
+  background:var(--panel);
+  border:1px solid var(--hairline);
+  white-space:nowrap;
+  color:var(--text-secondary);
+  font-weight:500;
+  opacity:0;
+  pointer-events:none;
+  transition:opacity 180ms ease;
+}
+.col-label.tap-active{
+  /* raise the whole label (and its elevation pill along with it) above
+     sibling labels — otherwise a neighbour later in the DOM can paint
+     over the reveal, especially in tightly-packed clusters */
+  z-index:1;
+}
+.col-label.tap-active .col-label-alt{
+  opacity:1;
+}
+@media (hover:hover) and (pointer:fine){
+  /* real mouse hover only — on touch, :hover can linger stickily after a
+     tap (notoriously on iOS Safari) instead of behaving like a proper
+     hover, so touch relies solely on the explicit tap-active toggle above */
+  .col-label:hover{
+    z-index:1;
+  }
+  .col-label:hover .col-label-alt{
+    opacity:1;
+  }
+}
+
+@media (max-width:640px){
+  .stat-rail{display:none;}
+  .title{font-size:30px;}
+  .sub{display:none;}
+  .detail-card{max-width:none;}
+}
+
+@media (max-height:500px){
+  /* phone in landscape: too little vertical room for the route AND a
+     full day detail card without one crowding out the other — an id
+     selector so it wins over .detail-card.visible's display:block
+     regardless of source order */
+  #detail-card{display:none;}
+  .stat-rail{display:none;}
+  .sub{display:none;}
+}
+
+.loading{
+  position:fixed;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  background:var(--bg);
+  color:var(--text-muted);
+  font-size:11px;
+  letter-spacing:0.2em;
+  text-transform:uppercase;
+  z-index:20;
+  transition:opacity 400ms ease;
+}
+

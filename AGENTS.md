@@ -8,64 +8,84 @@ mistakes already made and fixed, so they don't get reintroduced.
 
 ## What this is, in one line
 
-A single self-contained `index.html` (~920 KB, Three.js bundled inline) that
-renders a real 7-day Alpine cycling route in 3D, with a responsive HTML/CSS
-HUD on top. No build step, no dependencies to install, no other source files
-except `tools/rebuild_from_strava.py` (regenerates the embedded route data —
-see README).
+A Three.js app that renders a real 7-day Alpine cycling route in 3D, with a
+responsive HTML/CSS HUD on top. Editable source lives under `src/` (plain
+`.css`/`.js`/font files, a normal multi-file skeleton page); the root
+`index.html` is a generated build artifact, everything inlined into one
+~940 KB file — see README's "Project layout" section for why (short version:
+Claude Artifacts, how this is published, block all external requests, so the
+published page has to be one self-contained file).
+
+**This split is recent.** If anything below describes `index.html` as *the*
+source, or a fix mentions a line number in it, that's stale — the same code
+now lives under `src/`, unchanged in substance, just relocated. Trust
+`src/` as ground truth over anything that talks about editing `index.html`
+directly.
 
 ## Workflow: how this project actually gets worked on
 
-There's no build/test/lint pipeline. The loop for every change has been:
-
-1. Edit `index.html` directly with `Edit`/`Read` (it's plain HTML/CSS/JS in
-   `<style>`/`<script>` tags — treat it like any web source file, not a
-   binary blob).
-2. Serve it locally and check it in a real browser before shipping:
+1. Edit files under `src/` directly — `src/style.css`, `src/app.js`,
+   `src/vendor/*`, `src/data/route-data.js` (regenerate this one with
+   `tools/rebuild_from_strava.py`, don't hand-edit it — see README). Treat
+   these exactly like any other web source files.
+2. Serve `src/` locally and check it in a real browser before shipping:
    ```bash
    python3 -m http.server 8123
    ```
-   then open `http://localhost:8123/index.html` in the browser tool. Always
-   kill the server when done (`pkill -f "http.server 8123"`) — it's not
-   meant to stay running between turns.
+   then open `http://localhost:8123/src/index.html` in the browser tool —
+   note the `/src/` in the path, `/index.html` at that port is the *stale*
+   bundled copy until you rebuild it (next step). Always kill the server
+   when done (`pkill -f "http.server 8123"`).
 3. **Actually look at it.** This app is almost entirely CSS layout and 3D
    camera math; static code review misses real bugs here (see "CSS
    source-order bug" below, which *read* correct and wasn't). Screenshot
    after every change, at more than one viewport size — at minimum a
    desktop width (~900×550) and a narrow phone portrait (~390×844).
-4. Commit only when asked, using the repo's existing commit-message style:
+4. Before committing or publishing, rebuild the root `index.html` from
+   `src/`:
+   ```bash
+   python3 tools/build.py
+   ```
+   Do this *every time* `src/` changes and you're about to commit/publish —
+   the root `index.html` is not auto-synced, and publishing a stale one
+   will ship an old version without whatever you just changed.
+5. Commit only when asked, using the repo's existing commit-message style:
    a one-line summary, then a paragraph explaining *why*, not just what
    (`git log` has ~30 examples). Always `Co-Authored-By: Claude Sonnet 5
    <noreply@anthropic.com>`.
-5. Publish with the `Artifact` tool, passing the **existing** artifact URL
+6. Publish with the `Artifact` tool, passing the **existing** artifact URL
    so it updates in place rather than forking a new one:
    ```
    url: https://claude.ai/code/artifact/a7e256fe-a64f-4a03-86c8-8edf63991aac
    favicon: 🚵   (keep this — same artifact, same favicon, always)
    ```
-   If that URL is ever lost, `Artifact` with `action: "list"` will find it
-   again by title ("Raid Alps").
-6. The user has occasionally asked to check things on a real iPhone
+   `file_path` for that call is the root `index.html` — the bundled one,
+   never `src/index.html` (Artifacts can't load its separate CSS/JS/font
+   files, see README). If the URL is ever lost, `Artifact` with
+   `action: "list"` will find it again by title ("Raid Alps").
+7. The user has occasionally asked to check things on a real iPhone
    Simulator too, in addition to the desktop browser tool. See "Testing
    tooling gotchas" below before doing that — it's not as straightforward
    as it sounds.
 
-## Map of `index.html`
+## Map of the source
 
-It's one file, but not an undifferentiated mess. Rough landmarks (search
-for these, don't trust line numbers — they drift):
+Rough landmarks (search for these, don't trust line numbers — they drift):
 
-- `<style>` block: CSS custom properties at the top (`--bg`, `--panel`,
+- `src/style.css`: CSS custom properties at the top (`--bg`, `--panel`,
   etc.), then HUD layout (`.hud`, `.hud-top`, `.hud-bottom`, `.masthead`,
   `.stat-rail`, `.chip-rail`, `.detail-card`, `.col-label*`), then two
   `@media` breakpoints (see "Responsive layout" below), then the loading
-  screen.
-- A giant minified Three.js + OrbitControls bundle (`<script>` — don't try
-  to read or edit this; it's vendored, not app code).
-- `window.ROUTE_DATA = {...}` — the embedded route dataset. See README for
-  provenance; don't hand-edit this, regenerate it with
-  `tools/rebuild_from_strava.py` if it ever needs to change.
-- The app script, one big IIFE (`(function(){ "use strict"; ... })()`).
+  screen. Fonts are real `.woff2` files under `src/fonts/`, referenced by
+  relative `url()` — `tools/build.py` is what turns those into the base64
+  data URIs the bundled `index.html` actually ships.
+- `src/vendor/three.min.js`, `src/vendor/OrbitControls.js`: vendored,
+  not app code — don't try to read or edit these.
+- `src/data/route-data.js`: sets `window.ROUTE_DATA = {...}`, the embedded
+  route dataset. See README for provenance; don't hand-edit this,
+  regenerate it with `tools/rebuild_from_strava.py` if it ever needs to
+  change.
+- `src/app.js`: one big IIFE (`(function(){ "use strict"; ... })()`).
   Inside it, in roughly this order: `LEGS` setup and leg-merging, Three.js
   scene/camera/renderer/controls setup, camera framing (`frameBox`,
   `hudBottomReserveFrac`, `applyBottomReserve`), leg mesh building
@@ -224,6 +244,18 @@ in a logical sense — CSS doesn't care about that, only about specificity
   short-height viewport (e.g. 844×390) has been the reliable substitute,
   and exercises the exact same `max-height:500px` media query real
   landscape would.
+- **`resize_window` immediately followed by a page load can produce a
+  one-off fully black canvas** (route doesn't render, HUD is fine) — seen
+  once on `src/index.html` served over real HTTP, right after resizing to
+  the mobile preset. Reloading the exact same URL afterward, in a fresh
+  tab, with no resize involved, worked every time (10+ attempts). Never
+  reproduced on a normal navigation without a preceding resize. Read as a
+  resize/paint-timing artifact of the tool, not a real app bug, and not
+  something the split-source setup introduced — but if it resurfaces and
+  seems to correlate with genuine cold network loads rather than the
+  resize tool specifically, it's worth a real investigation; it wasn't
+  chased further here because it couldn't be reproduced without resize in
+  the loop.
 - Xcode must have its developer directory selected
   (`xcode-select -s /Applications/Xcode.app/Contents/Developer`) for the
   Simulator tool to attach at all — this needs the user's password to fix

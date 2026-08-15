@@ -1,0 +1,30 @@
+<meta charset="utf-8">
+<title>Raid Alps</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="style.css">
+<div id="loading" class="loading">LOADING ROUTE DATA&hellip;</div>
+<div id="scene-root"></div>
+<svg id="col-leader-lines" class="col-leader-lines"></svg>
+<div id="col-labels" class="col-labels"></div>
+
+<div class="hud">
+  <div class="hud-top">
+    <div class="masthead">
+      <div class="eyebrow">Cycling Expedition &middot; 26 Jul&ndash;1 Aug 2026</div>
+      <h1 class="title">Raid Alps</h1>
+      <p class="sub">Seven climbing days across the French Alps &mdash; from Thonon-les-Bains to Nice &mdash; 26 named cols and 16,106&nbsp;m of climbing in one week.</p>
+    </div>
+    <div id="stat-rail" class="stat-rail"></div>
+  </div>
+  <div id="hud-bottom" class="hud-bottom">
+    <div id="detail-card" class="detail-card"></div>
+    <div id="chip-rail" class="chip-rail"></div>
+    <div id="exag-note" class="hint"></div>
+    <div id="interaction-hint" class="hint">drag to orbit &middot; scroll to zoom</div>
+  </div>
+</div>
+
+<script src="vendor/three.min.js"></script>
+<script src="vendor/OrbitControls.js"></script>
+<script src="data/route-data.js"></script>
+<script src="app.js"></script>

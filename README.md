@@ -19,9 +19,55 @@ Drag to orbit, scroll to zoom, click a day to focus on it. Focusing a day
 shows labels for its named cols, each with a leader line to a marker on
 the route.
 
+## Project layout
+
+`index.html` at the repo root is a **build artifact** — everything CSS,
+JS, fonts, and route data inlined into one ~940 KB file. That's not
+stylistic; it's required. This app is published as a Claude Artifact,
+and Artifacts enforce a strict CSP that blocks requests to any other
+file, even same-origin — the published page has to be one file with
+nothing external. Editing that inlined file directly still works fine
+for local hacking, but it isn't the source of truth for anything that
+gets shipped.
+
+The actual editable source lives under `src/`:
+
+```
+src/
+  index.html          skeleton — links/scripts point at the files below
+  style.css           all CSS, incl. @font-face rules (real font files)
+  fonts/*.woff2        real font files, not base64 blobs
+  vendor/three.min.js, vendor/OrbitControls.js
+  app.js               the app itself
+  data/route-data.js   window.ROUTE_DATA — see below for provenance
+```
+
+`src/index.html` is a normal multi-file page — open it via a local
+server (`python3 -m http.server` from the repo root, then
+`/src/index.html`) and every file loads with an ordinary HTTP request,
+same as any other static site. It will *not* work published as an
+Artifact or opened via `file://` in some browsers, for the same CSP/
+external-request reasons as above.
+
+After editing anything under `src/`, rebuild the root `index.html`
+before committing or publishing:
+
+```bash
+python3 tools/build.py
+```
+
+This inlines `style.css` (base64-encoding the font files into
+`@font-face` data URIs), both vendor scripts, `route-data.js`, and
+`app.js` into one file, in the same structure the hand-bundled version
+used before the split. `tools/split_sources.py` is the one-time script
+that produced the original `src/` layout from that bundled file — it's
+not part of the regular workflow, kept only as a reference for how the
+split was derived.
+
 ## Where the route data comes from
 
-`index.html` embeds a `window.ROUTE_DATA` object: per-day polylines
+`src/data/route-data.js` sets a `window.ROUTE_DATA` object (inlined into
+the bundled `index.html` by `tools/build.py`): per-day polylines
 (`[x, altitude, z]` points in a local, unscaled coordinate system — a
 flat equirectangular projection referenced to the trip's centroid, not
 tied to true north) plus each day's list of named cols in ride order.
@@ -77,7 +123,7 @@ streams into `ROUTE_DATA`:
   recomputed from the noisier raw altitude stream.
 
 Two named cols (Cime de Vermillon, Col de Nice) get no marker or label
-even though real data exists for both now — `index.html`'s own
+even though real data exists for both now — `src/app.js`'s own
 leg-merge step drops them from `colMarkers` at runtime (`EXCLUDED_COLS`),
 alongside Faux col de Restefond (not a genuine named pass — the name
 means "false col"). This is a client-side filter, not a hole in the
@@ -88,11 +134,13 @@ day's raw stream JSON as `day1_streams.json`, `day2_streams.json`, etc.,
 in the working directory — see the module docstring):
 
 ```bash
-python3 tools/rebuild_from_strava.py index.html
+python3 tools/rebuild_from_strava.py
+python3 tools/build.py
 ```
 
-It rewrites `window.ROUTE_DATA` in place and prints each col's chosen
-point, altitude, and error against its recorded elevation.
+The first rewrites `src/data/route-data.js` and prints each col's
+chosen point, altitude, and error against its recorded elevation; the
+second folds it into the bundled `index.html`.
 
 ## Rendering notes
 

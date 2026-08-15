@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Rebuilds window.ROUTE_DATA in index.html from real Strava activity data.
+Rebuilds src/data/route-data.js from real Strava activity data.
 
 This does NOT call the Strava API itself — it consumes location/altitude/
 distance stream JSON already fetched for each day's activity (see ACTIVITIES
@@ -43,7 +43,8 @@ Pipeline per day:
      recomputed from the noisy raw altitude stream.
 
 Usage:
-    python3 tools/rebuild_from_strava.py index.html
+    python3 tools/rebuild_from_strava.py
+    python3 tools/build.py   # fold the new data into index.html
 """
 import re, json, math, sys
 
@@ -226,10 +227,13 @@ def pick_cols_dp(pts, col_names, real_alts, project):
 
 
 def main():
-    if len(sys.argv) != 2:
-        print("usage: rebuild_from_strava.py path/to/index.html", file=sys.stderr)
+    if len(sys.argv) > 2:
+        print("usage: rebuild_from_strava.py [path/to/route-data.js]", file=sys.stderr)
         sys.exit(1)
-    html_path = sys.argv[1]
+    # src/data/route-data.js is the source of truth for route data; index.html
+    # is a build artifact (see tools/build.py) and gets overwritten wholesale
+    # from src/ on every build, so writing there directly would just be lost.
+    out_path = sys.argv[1] if len(sys.argv) == 2 else "src/data/route-data.js"
 
     all_lats, all_lons, raw = [], [], {}
     for key, meta in ACTIVITIES.items():
@@ -304,21 +308,16 @@ def main():
         "order": list(ACTIVITIES.keys()), "legs": legs, "bbox": bbox, "summary": summary,
     }
 
-    with open(html_path) as f:
-        content = f.read()
-    m = re.search(r"window\.ROUTE_DATA = (\{.*?\});(</script>)", content, re.S)
-    if not m:
-        print("could not find window.ROUTE_DATA in file", file=sys.stderr)
-        sys.exit(1)
     new_json = json.dumps(route_data, ensure_ascii=False, separators=(",", ":"))
-    new_content = content[:m.start(1)] + new_json + content[m.end(1):]
-    with open(html_path, "w") as f:
+    new_content = f"window.ROUTE_DATA = {new_json};\n"
+    with open(out_path, "w") as f:
         f.write(new_content)
 
     hh, mm = total_moving_s // 3600, (total_moving_s % 3600) // 60
     print(f"\nTOTAL: {total_dist_km:.1f} km, gain {total_gain_m:.0f} m, "
           f"high point {max_alt_m:.0f} m, moving time {hh}:{mm:02d}")
-    print(f"wrote {html_path} ({len(new_content)} bytes)")
+    print(f"wrote {out_path} ({len(new_content)} bytes)")
+    print("run `python3 tools/build.py` to fold this into index.html")
 
 
 if __name__ == "__main__":
