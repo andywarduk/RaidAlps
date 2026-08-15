@@ -182,6 +182,7 @@ body{
     row-gap:10px;
   }
   #exag-note, #interaction-hint{ justify-self:start; }
+  .detail-card{ max-width:none; }
 }
 
 .detail-card{
@@ -437,7 +438,7 @@ body{
     </div>
     <div id="stat-rail" class="stat-rail"></div>
   </div>
-  <div class="hud-bottom">
+  <div id="hud-bottom" class="hud-bottom">
     <div id="detail-card" class="detail-card"></div>
     <div id="chip-rail" class="chip-rail"></div>
     <div id="exag-note" class="hint"></div>
@@ -1832,14 +1833,51 @@ body{
   }
 
   // ---- camera framing --------------------------------------------------------
-  function frameBox(b){
+  // On narrow screens the bottom HUD (day detail card + pills) can cover a
+  // large share of the viewport height, so the route needs to fit above it
+  // rather than being centered in the full window and running underneath.
+  function hudBottomReserveFrac(){
+    var el = document.getElementById("hud-bottom");
+    if (!el) return 0;
+    var h = el.getBoundingClientRect().height;
+    // the detail card keeps its last content (just invisible via opacity)
+    // between visits rather than clearing on hide, so exclude its height
+    // whenever it isn't the one currently meant to be showing
+    var card = document.getElementById("detail-card");
+    if (card && !card.classList.contains("visible")){
+      h -= card.getBoundingClientRect().height;
+    }
+    if (h <= 0) return 0;
+    return clamp(h / window.innerHeight + 0.03, 0, 0.5);
+  }
+
+  function frameBox(b, bottomReserveFrac){
+    bottomReserveFrac = bottomReserveFrac || 0;
     var center = new THREE.Vector3((b.minx+b.maxx)/2, ((b.miny||0)+(b.maxy||0))/2, (b.minz+b.maxz)/2);
     var size = new THREE.Vector3(b.maxx-b.minx, (b.maxy-b.miny)||1, b.maxz-b.minz);
     var boundingRadius = Math.max(size.length() / 2, 200);
     var vFov = camera.fov * Math.PI / 180;
-    var dist = (boundingRadius / Math.sin(vFov / 2)) * 1.18; // margin so the bounding sphere clears the frustum
+    // shrink the usable frustum height to leave room for the reserved
+    // strip at the bottom, then zoom out enough that the bounding sphere
+    // still fits inside what's left
+    var usableFrac = 1 - bottomReserveFrac;
+    var dist = (boundingRadius / Math.sin(vFov / 2)) * 1.18 / usableFrac;
     var dir = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
     var camPos = center.clone().addScaledVector(dir, dist);
+
+    if (bottomReserveFrac > 0){
+      // push the framed content up on screen by half the reserved strip,
+      // using the camera's own screen-space "up" so it holds at any orbit
+      // angle — moving the look-at point down shifts what's rendered
+      // toward the top of the frame
+      var forward = center.clone().sub(camPos).normalize();
+      var worldUp = new THREE.Vector3(0,1,0);
+      var screenUp = worldUp.clone().addScaledVector(forward, -forward.dot(worldUp)).normalize();
+      var frustumHalfHeight = dist * Math.tan(vFov/2);
+      var shift = frustumHalfHeight * (bottomReserveFrac/2);
+      camPos.addScaledVector(screenUp, -shift);
+      center.addScaledVector(screenUp, -shift);
+    }
     return { center: center, camPos: camPos };
   }
 
@@ -1857,11 +1895,14 @@ body{
   function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
 
   // initial camera position = overview framing
-  var overviewFrame = frameBox({
-    minx:OVERVIEW_BBOX.minx, maxx:OVERVIEW_BBOX.maxx,
-    miny:OVERVIEW_BBOX.miny*OVERVIEW_EX, maxy:OVERVIEW_BBOX.maxy*OVERVIEW_EX,
-    minz:OVERVIEW_BBOX.minz, maxz:OVERVIEW_BBOX.maxz
-  });
+  function computeOverviewFrame(){
+    return frameBox({
+      minx:OVERVIEW_BBOX.minx, maxx:OVERVIEW_BBOX.maxx,
+      miny:OVERVIEW_BBOX.miny*OVERVIEW_EX, maxy:OVERVIEW_BBOX.maxy*OVERVIEW_EX,
+      minz:OVERVIEW_BBOX.minz, maxz:OVERVIEW_BBOX.maxz
+    }, hudBottomReserveFrac());
+  }
+  var overviewFrame = computeOverviewFrame();
   camera.position.copy(overviewFrame.camPos);
   controls.target.copy(overviewFrame.center);
   controls.update();
@@ -1905,6 +1946,17 @@ body{
     chipRail.appendChild(chip);
     chips[leg.id] = chip;
   });
+
+  // the chip rail was empty when the initial overview frame above was
+  // computed, so its measured HUD-reserve height was too small — redo it
+  // now that the day pills actually exist, snapping straight there since
+  // nothing has been rendered on screen yet to animate away from
+  overviewFrame = computeOverviewFrame();
+  camera.position.copy(overviewFrame.camPos);
+  controls.target.copy(overviewFrame.center);
+  controls.update();
+  OVERVIEW_FOG_DENSITY = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
+  scene.fog.density = OVERVIEW_FOG_DENSITY;
 
   function setActiveChip(id){
     overviewChip.classList.toggle("active", id === null);
@@ -1994,22 +2046,24 @@ body{
     scene.add(focusGrid);
     overviewGrid.material.opacity = 0.04;
 
+    activeLegId = id;
+    setActiveChip(id);
+    showDetail(leg); // before framing, so its now-current content is measured for the HUD reserve
+
     var frame = frameBox({
       minx:b.minx, maxx:b.maxx, minz:b.minz, maxz:b.maxz,
       miny:b.miny*ex, maxy:b.maxy*ex
-    });
+    }, hudBottomReserveFrac());
     flyTo(frame.camPos, frame.center, 950);
     scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
 
-    activeLegId = id;
-    setActiveChip(id);
-    showDetail(leg);
     exagNote.textContent = "elevation exaggerated ×" + Math.round(ex);
     pageTitle.textContent = "Raid Alps — " + leg.label;
   }
 
   function goOverview(){
     tappedMarker = null;
+    hideDetail(); // before re-measuring the HUD reserve, so its (stale, now-hidden) content doesn't count
     LEGS.forEach(function(leg){
       var cur = legGroups[leg.id];
       if (Math.abs(cur.ex - OVERVIEW_EX) > 0.01 || cur.radius !== OVERVIEW_RADIUS){
@@ -2024,12 +2078,13 @@ body{
     });
     if (focusGrid){ scene.remove(focusGrid); focusGrid.geometry.dispose(); focusGrid.material.dispose(); focusGrid=null; }
     overviewGrid.material.opacity = 0.35;
-    scene.fog.density = OVERVIEW_FOG_DENSITY;
 
+    overviewFrame = computeOverviewFrame();
+    OVERVIEW_FOG_DENSITY = fogDensityForCamDist(overviewFrame.camPos.distanceTo(overviewFrame.center));
+    scene.fog.density = OVERVIEW_FOG_DENSITY;
     flyTo(overviewFrame.camPos, overviewFrame.center, 950);
     activeLegId = null;
     setActiveChip(null);
-    hideDetail();
     exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
     pageTitle.textContent = "Raid Alps";
   }
