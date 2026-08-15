@@ -1829,10 +1829,22 @@ body{
     updateColLabelWorldPositions(leg, ex);
     requestAnimationFrame(function(){ fadeOpacity(group, 0, 1, 260); });
 
-    // dim other legs
+    // dim other legs — rebuild them at the same exaggeration as the
+    // focused leg so their altitude scale matches and routes still join
+    // up smoothly at the day boundary, instead of kinking where the
+    // focused leg's custom exaggeration meets the old overview scale
     LEGS.forEach(function(l){
       if (l.id === id) return;
-      fadeOpacity(legGroups[l.id].group, currentOpacity(legGroups[l.id].group), 0.06, 500);
+      var prev = legGroups[l.id];
+      var curOp = currentOpacity(prev.group);
+      scene.remove(prev.group);
+      prev.group.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+      var og = buildLegGroup(l, ex, radius);
+      setGroupOpacity(og, curOp);
+      scene.add(og);
+      legGroups[l.id] = { group:og, ex:ex, radius:radius };
+      updateColLabelWorldPositions(l, ex);
+      fadeOpacity(og, curOp, 0.22, 500);
     });
 
     // local grid

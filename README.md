@@ -37,7 +37,7 @@ streams into `ROUTE_DATA`:
   their shape while straight sections thin out.
 - **Col markers**: placed by matching against real-world data, in
   priority order:
-  1. **22 of 26 cols have a known real-world coordinate** (`REAL_COORDS`
+  1. **23 of 26 cols have a known real-world coordinate** (`REAL_COORDS`
      in `tools/rebuild_from_strava.py`, hand-gathered by web search).
      For these, matching is a direct geographic nearest-point search —
      the route point closest to the col's true position on the ground.
@@ -46,9 +46,10 @@ streams into `ROUTE_DATA`:
      coordinates onto the *previous*, synthetic placeholder route and
      abandoned it — residuals of 10–60 km made it worse than useless
      against data that didn't preserve real-world bearings.
-  2. **The remaining 4** (Col de la Platrière, Cime de Vermillon, Col de
-     Nice, plus any col where no coordinate could be found) fall back to
-     matching their real recorded elevation — read straight from that
+  2. **The remaining 3** (Col de la Platrière, Cime de Vermillon, Col de
+     Nice — no reliable coordinate could be found for any of them, even
+     after a targeted follow-up search) fall back to matching their real
+     recorded elevation — read straight from that
      activity's own Strava description, the actual climb-top reading
      from that specific ride — against a genuine local peak in the
      recorded altitude profile. "Genuine local peak" is load-bearing
