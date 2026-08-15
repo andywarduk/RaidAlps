@@ -95,13 +95,16 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   regenerate it with `tools/rebuild_from_strava.py` if it ever needs to
   change.
 - `src/app.js`: one big IIFE (`(function(){ "use strict"; ... })()`).
-  Inside it, in roughly this order: `LEGS` setup and leg-merging, Three.js
-  scene/camera/renderer/controls setup, camera framing (`frameBox`,
-  `hudBottomReserveFrac`, `applyBottomReserve`), leg mesh building
-  (`buildLegGroup`), col label creation and per-frame placement
-  (`createColLabelEls`, `updateColLabelScreenPositions`), HUD wiring
-  (stat rail, chip rail, detail card), focus/overview transitions
-  (`focusLeg`, `goOverview`), and the `animate()` render loop at the end.
+  Inside it, in roughly this order: `LEGS` setup and leg-merging, viewport
+  helpers (`vpW`, `vpH`, `vpValid` — always read the viewport through
+  these, never `window.innerWidth` directly; see the black-canvas entry
+  under "Tooling gotchas" for why), Three.js scene/camera/renderer/controls
+  setup, camera framing (`frameBox`, `hudBottomReserveFrac`,
+  `applyBottomReserve`), leg mesh building (`buildLegGroup`), col label
+  creation and per-frame placement (`createColLabelEls`,
+  `updateColLabelScreenPositions`), HUD wiring (stat rail, chip rail,
+  detail card), focus/overview transitions (`focusLeg`, `goOverview`), the
+  `animate()` render loop, and `onViewportChange()` at the end.
 
 ## Responsive layout
 
@@ -122,9 +125,12 @@ both queries** — they're independent, not layered.
 
 ## Camera framing (the part most likely to bite you)
 
-`frameBox(bbox, bottomReserveFrac)` computes where the camera sits to
-frame either the whole trip or one focused day. Two things about it are
-deliberate and non-obvious:
+`frameBox(bbox, bottomReserveFrac, viewDir)` computes where the camera
+sits to frame either the whole trip or one focused day. `viewDir` is
+optional and defaults to `DEFAULT_VIEW_DIR`, the canonical three-quarter
+angle; it exists so a re-frame can refit the content without discarding
+the angle the user has orbited to. Two things about it are deliberate and
+non-obvious:
 
 1. **It fits the bounding box's projected corners exactly, not a
    circumscribed sphere.** An earlier version used
@@ -157,14 +163,26 @@ whatever's currently showing. `applyBottomReserve()` must be called
 alongside every `frameBox()` call with the *same* fraction, or the visual
 reserve and the actual camera framing will disagree.
 
-**Known limitation, not yet fixed**: none of this re-runs on window
-resize — only `camera.aspect`/`renderer.setSize` update in the resize
-handler. If the user resizes mid-session (or rotates a real device, which
-does fire a resize), the framing can go stale until they focus a different
-day. Fixing this properly would mean re-running `frameBox` on resize,
-which weakens the case for *not* animating it (would need a resize-time
-`flyTo` or an instant snap) — flagged here rather than fixed because it
-wasn't the specific bug reported each time this system got touched.
+**This now re-runs on viewport change** (it used to be a known limitation:
+only `camera.aspect`/`renderer.setSize` updated, so rotating a device left
+the route clipped off both sides until you focused a different day).
+`onViewportChange()` refits against `currentFramingBox` — the
+exaggeration-scaled box the camera is currently framing, recorded by both
+`computeOverviewFrame()` and `focusLeg()`, so the handler knows whether
+it's refitting the overview or one day. Keep those two assignments in sync
+if you add another thing the camera can frame, or a resize will refit the
+wrong box. Details worth knowing:
+
+- It **snaps rather than animates**, but retargets an in-flight `flyTo`
+  (rewriting `tweenState.toPos/toTarget`) instead of yanking the camera
+  out from under it.
+- It **inherits the user's current orbit direction**, so dragging a window
+  edge doesn't reset their view — except mid-`flyTo`, where the direction
+  is a transient, and before `framedOnce`, where it's the placeholder 1×1
+  framing from a zero-sized load.
+- A `ResizeObserver` on `#scene-root` runs alongside the `resize`
+  listener, because a container can gain size while the window doesn't —
+  which is exactly the hidden-iframe case.
 
 ## Touch vs. mouse handling
 
@@ -253,18 +271,33 @@ in a logical sense — CSS doesn't care about that, only about specificity
   short-height viewport (e.g. 844×390) has been the reliable substitute,
   and exercises the exact same `max-height:500px` media query real
   landscape would.
-- **`resize_window` immediately followed by a page load can produce a
-  one-off fully black canvas** (route doesn't render, HUD is fine) — seen
-  once on `src/index.html` served over real HTTP, right after resizing to
-  the mobile preset. Reloading the exact same URL afterward, in a fresh
-  tab, with no resize involved, worked every time (10+ attempts). Never
-  reproduced on a normal navigation without a preceding resize. Read as a
-  resize/paint-timing artifact of the tool, not a real app bug, and not
-  something the split-source setup introduced — but if it resurfaces and
-  seems to correlate with genuine cold network loads rather than the
-  resize tool specifically, it's worth a real investigation; it wasn't
-  chased further here because it couldn't be reproduced without resize in
-  the loop.
+- **The "black canvas after `resize_window`" was a real app bug, now
+  fixed** — this entry used to describe a fully black canvas over a working
+  HUD (seen right after resizing to the mobile preset, never reproducible
+  without a resize in the loop) and wrote it off as a paint-timing artifact
+  of the browser tool. It wasn't. If the page loads while the viewport is
+  zero-sized, `window.innerWidth/innerHeight` are `0`, so `camera.aspect`
+  is `NaN`; that propagates through `frameBox()` into `camera.position`,
+  because `Math.max(dist, NaN, 200)` returns `NaN` rather than the intended
+  `200` floor. The old resize handler only repaired `camera.aspect`, never
+  the camera position, so nothing ever brought it back — permanently black,
+  not one-off. `vpW()/vpH()/vpValid()` in `app.js` now floor the viewport
+  at 1×1 so no zero reaches the math, and `onViewportChange()` re-frames
+  the camera instead of only patching aspect. Don't reintroduce a bare
+  `window.innerWidth`/`innerHeight` read — route it through the helpers.
+- **The preview pane is often hidden, which pauses `requestAnimationFrame`
+  entirely** (`document.visibilityState === "hidden"`, zero rAF callbacks).
+  Since this app renders only from its rAF loop, the canvas then stays
+  blank no matter what — easy to misread as a rendering bug. To verify
+  anything 3D, stub `window.requestAnimationFrame` with a manual queue
+  before `app.js` loads and pump frames by hand; wrap
+  `THREE.WebGLRenderer/PerspectiveCamera/Scene` at the same point to reach
+  the objects inside the IIFE. Two traps when doing this: the app's tweens
+  use `performance.now()`, so realign your pump clock to
+  `performance.now()` at the start of *every* evaluation or fades and
+  fly-tos silently freeze at their start values; and a hidden pane can
+  report `innerWidth/innerHeight` of 0, which is how the bug above was
+  found in the first place.
 - Xcode must have its developer directory selected
   (`xcode-select -s /Applications/Xcode.app/Contents/Developer`) for the
   Simulator tool to attach at all — this needs the user's password to fix
@@ -280,3 +313,13 @@ in a logical sense — CSS doesn't care about that, only about specificity
   time) inline elevation reveal. The elevation pill is now
   `position:absolute` specifically so it can never again perturb the
   label's own measured size — don't put it back in normal flow.
+- The focused day appearing to fade in from nothing when you zoom into it
+  from the overview, despite already being fully coloured there: **fixed**.
+  `focusLeg()` rebuilds the day's group at higher fidelity, and it used to
+  `setGroupOpacity(group, 0)` and fade `0 -> 1` unconditionally, so the day
+  blinked out and re-appeared. It now carries the outgoing group's
+  `currentOpacity()` across the swap — exactly what the sibling legs in the
+  same function already did — which is a no-op coming from the overview
+  (already 1) and still runs the real `0.22 -> 1` reveal coming from
+  another focused day. If you touch this, check *both* entry paths: the
+  bug was invisible from the day-to-day path.

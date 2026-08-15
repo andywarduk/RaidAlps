@@ -295,7 +295,15 @@ def main():
     total_dist_km = sum(a["distance"] for a in ACTIVITIES.values()) / 1000.0
     total_gain_m = sum(a["elevation_gain"] for a in ACTIVITIES.values())
     total_moving_s = sum(a["moving_time"] for a in ACTIVITIES.values())
-    max_alt_m = max(legs[k]["max_alt_m"] for k in legs)
+    # Take the trip high point from the raw altitudes (all_y), NOT from the
+    # per-leg max_alt_m values — those are already rounded to whole metres,
+    # and converting a rounded metre figure to feet double-rounds it. The
+    # summit that produced this (2793.7 m) came out as 9,166 ft on its day
+    # card via round(2793.7 * M_TO_FT) but 9,167 ft in the trip stat rail via
+    # round(round(2793.7) * M_TO_FT) — the same summit showing two different
+    # heights in two places on screen. Every other summary field already sums
+    # raw inputs; this was the one that read a rounded value back out.
+    max_alt_m = max(all_y)
 
     summary = {
         "total_dist_km": round(total_dist_km, 1), "total_dist_mi": round(total_dist_km * KM_TO_MI, 1),

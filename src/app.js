@@ -18,6 +18,12 @@
 
   function fmt(n){ return n.toLocaleString("en-US"); }
 
+  // Cime de Vermillon / Col de Nice: no published elevation or position
+  // could be found — drop rather than guess. Faux col de Restefond: not
+  // a genuine named pass (the name literally means "false col"), just a
+  // saddle near the real Col de Restefond.
+  var EXCLUDED_COLS = { "Cime de Vermillon":1, "Col de Nice":1, "Faux col de Restefond":1 };
+
   // ---- merge day3a/day3b into leg records --------------------------------
   LEGS.forEach(function(leg){
     var parts = leg.keys.map(function(k){ return DATA.legs[k]; });
@@ -38,11 +44,6 @@
     leg.color = cssVar(leg.colorVar);
     leg.colMarkers = [];
     parts.forEach(function(p){ leg.colMarkers = leg.colMarkers.concat(p.colMarkers); });
-    // Cime de Vermillon / Col de Nice: no published elevation or position
-    // could be found — drop rather than guess. Faux col de Restefond: not
-    // a genuine named pass (the name literally means "false col"), just a
-    // saddle near the real Col de Restefond.
-    var EXCLUDED_COLS = { "Cime de Vermillon":1, "Col de Nice":1, "Faux col de Restefond":1 };
     leg.colMarkers = leg.colMarkers.filter(function(cm){ return !EXCLUDED_COLS[cm.name]; });
   });
 
@@ -97,6 +98,25 @@
   var OVERVIEW_EX = clamp(0.22 * OVERVIEW_DIAG / OVERVIEW_ALT_RANGE, 5, 60);
   var OVERVIEW_RADIUS = OVERVIEW_DIAG / 1500;
 
+  // ---- viewport size -------------------------------------------------------
+  // Never hand a zero to the camera or the framing math. A page that loads
+  // into a zero-sized viewport (an artifact iframe mounted hidden, a
+  // display:none container, a tab not yet laid out) reports innerWidth and
+  // innerHeight of 0, which makes camera.aspect NaN — and that NaN runs
+  // straight through frameBox into camera.position, because
+  // Math.max(dist, NaN, 200) returns NaN rather than the intended 200 floor.
+  // The symptom was a permanently black canvas over a working HUD: the old
+  // resize handler repaired camera.aspect but never re-derived the camera
+  // position, so nothing ever brought it back. Falling back to 1x1 keeps
+  // every number finite; onViewportChange() re-frames for real as soon as a
+  // genuine size arrives.
+  function vpW(){ return Math.max(1, window.innerWidth || document.documentElement.clientWidth || 0); }
+  function vpH(){ return Math.max(1, window.innerHeight || document.documentElement.clientHeight || 0); }
+  function vpValid(){
+    return (window.innerWidth || document.documentElement.clientWidth || 0) > 0 &&
+           (window.innerHeight || document.documentElement.clientHeight || 0) > 0;
+  }
+
   // ---- three.js scene setup -------------------------------------------------
   var container = document.getElementById("scene-root");
   var scene = new THREE.Scene();
@@ -104,11 +124,11 @@
   scene.background = bgColor;
   scene.fog = new THREE.FogExp2(bgColor.getHex(), fogDensityForCamDist(OVERVIEW_DIAG));
 
-  var camera = new THREE.PerspectiveCamera(42, window.innerWidth/window.innerHeight, 5, 4000000);
+  var camera = new THREE.PerspectiveCamera(42, vpW()/vpH(), 5, 4000000);
 
   var renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:"high-performance" });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(vpW(), vpH());
   container.appendChild(renderer.domElement);
 
   var controls = new THREE.OrbitControls(camera, renderer.domElement);
@@ -151,7 +171,7 @@
     if (!start || activeLegId !== null) return;
     if (Math.hypot(e.clientX - start.x, e.clientY - start.y) > 6) return;
 
-    var halfW = window.innerWidth/2, halfH = window.innerHeight/2;
+    var halfW = vpW()/2, halfH = vpH()/2;
     var best = null, bestDist = HOVER_RADIUS;
     LEGS.forEach(function(leg){
       colLabels[leg.id].forEach(function(l, idx){
@@ -305,19 +325,12 @@
     updateColLabelWorldPositions(leg, OVERVIEW_EX);
   });
 
-  // label widths were measured before the custom webfont finished loading
-  // (font-display:swap renders a fallback first) — re-measure once it's in,
-  // otherwise collision boxes are too narrow and labels can overlap
-  if (document.fonts && document.fonts.ready){
-    document.fonts.ready.then(function(){
-      Object.keys(colLabels).forEach(function(legId){
-        colLabels[legId].forEach(function(l){
-          var r = l.el.getBoundingClientRect();
-          l.w = r.width; l.h = r.height;
-        });
-      });
-    });
-  }
+  // NB: the label sizes cached by createColLabelEls() are measured before the
+  // custom webfont has swapped in and so are too narrow. There used to be a
+  // document.fonts.ready hook here to re-measure them; it's gone because
+  // updateColLabelScreenPositions() re-measures every visible label live on
+  // every frame anyway (see the comment there for why it can't trust the
+  // cache), which covers the font swap and then some.
 
   function setGroupOpacity(group, op){
     group.traverse(function(o){
@@ -334,15 +347,20 @@
     if (!el) return 0;
     var h = el.getBoundingClientRect().height;
     if (h <= 0) return 0;
-    return clamp(h / window.innerHeight + 0.03, 0, 0.5);
+    return clamp(h / vpH() + 0.03, 0, 0.5);
   }
 
-  function frameBox(b, bottomReserveFrac){
+  var DEFAULT_VIEW_DIR = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
+
+  function frameBox(b, bottomReserveFrac, viewDir){
     bottomReserveFrac = bottomReserveFrac || 0;
     var center = new THREE.Vector3((b.minx+b.maxx)/2, ((b.miny||0)+(b.maxy||0))/2, (b.minz+b.maxz)/2);
     var vFov = camera.fov * Math.PI / 180;
     var hFov = 2 * Math.atan(Math.tan(vFov/2) * camera.aspect);
-    var dir = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
+    // an explicit viewDir lets a re-frame refit the content without throwing
+    // away whatever angle the user has orbited to; otherwise use the
+    // canonical three-quarter view
+    var dir = viewDir ? viewDir.clone().normalize() : DEFAULT_VIEW_DIR.clone();
 
     // Exact fit instead of circumscribing a sphere around the box's full
     // diagonal: project the 8 corners onto the view plane (perpendicular
@@ -351,7 +369,10 @@
     // routes are, and the old formula only checked vFov, leaving the
     // (usually wider) horizontal FOV of a landscape viewport unused.
     var forward = dir.clone().negate();
-    var worldUp = new THREE.Vector3(0,1,0);
+    // OrbitControls has no minPolarAngle here, so the user can orbit to
+    // straight overhead — where forward is parallel to +Y and the usual up
+    // reference collapses to a zero-length cross product
+    var worldUp = Math.abs(forward.y) > 0.999 ? new THREE.Vector3(0,0,1) : new THREE.Vector3(0,1,0);
     var right = new THREE.Vector3().crossVectors(forward, worldUp).normalize();
     var up = new THREE.Vector3().crossVectors(right, forward).normalize();
     var corners = [
@@ -392,7 +413,7 @@
   // of rotating in place.
   function applyBottomReserve(bottomReserveFrac){
     if (bottomReserveFrac > 0){
-      var w = window.innerWidth, h = window.innerHeight;
+      var w = vpW(), h = vpH();
       camera.setViewOffset(w, h, 0, h * bottomReserveFrac / 4, w, h);
     } else if (camera.view){
       camera.clearViewOffset();
@@ -412,15 +433,20 @@
   }
   function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
 
+  // the exaggeration-scaled box the camera is currently framing — kept so a
+  // viewport change can refit exactly what's on screen, overview or one day
+  var currentFramingBox = null;
+
   // initial camera position = overview framing
   function computeOverviewFrame(){
     var reserveFrac = hudBottomReserveFrac();
     applyBottomReserve(reserveFrac);
-    return frameBox({
+    currentFramingBox = {
       minx:OVERVIEW_BBOX.minx, maxx:OVERVIEW_BBOX.maxx,
       miny:OVERVIEW_BBOX.miny*OVERVIEW_EX, maxy:OVERVIEW_BBOX.maxy*OVERVIEW_EX,
       minz:OVERVIEW_BBOX.minz, maxz:OVERVIEW_BBOX.maxz
-    }, reserveFrac);
+    };
+    return frameBox(currentFramingBox, reserveFrac);
   }
   var overviewFrame = computeOverviewFrame();
   camera.position.copy(overviewFrame.camPos);
@@ -437,7 +463,9 @@
     stat("Distance", Math.round(s.total_dist_mi).toLocaleString(), "mi", s.total_dist_km.toLocaleString()+" km") +
     stat("Elev Gain", Math.round(s.total_gain_ft).toLocaleString(), "ft", s.total_gain_m.toLocaleString()+" m") +
     stat("High Point", Math.round(s.max_alt_ft).toLocaleString(), "ft", s.max_alt_m.toLocaleString()+" m") +
-    stat("Moving Time", Math.floor(s.moving_time_s/3600) + ":" + String(Math.round((s.moving_time_s%3600)/60)).padStart(2,"0"), "h:mm", LEGS.length + " riding days");
+    // floor, not round, on the minutes: rounding a remainder of 3570s or more
+    // renders as ":60" instead of rolling into the hour
+    stat("Moving Time", Math.floor(s.moving_time_s/3600) + ":" + String(Math.floor((s.moving_time_s%3600)/60)).padStart(2,"0"), "h:mm", LEGS.length + " riding days");
 
   function stat(label, value, unit, sub){
     return '<div class="stat"><div class="stat-label">'+label+'</div>' +
@@ -529,16 +557,23 @@
     var ex = clamp(0.34*diag/altRange, 3, 22);
     var radius = Math.max(diag/900, 6);
 
-    // rebuild this leg's group at higher fidelity/exaggeration
+    // Rebuild this leg's group at higher fidelity/exaggeration, carrying its
+    // current opacity across the swap the same way the sibling legs below
+    // do. It used to be rebuilt at 0 and faded 0 -> 1 unconditionally, which
+    // made the day blink out and re-appear when focused straight from the
+    // overview — where it was already fully coloured and should just stay
+    // put. Coming from another focused day it was sitting dimmed at 0.22, so
+    // this still runs the meaningful reveal.
     var old = legGroups[id].group;
+    var prevOp = currentOpacity(old);
     scene.remove(old);
     old.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
     var group = buildLegGroup(leg, ex, radius);
-    setGroupOpacity(group, 0);
+    setGroupOpacity(group, prevOp);
     scene.add(group);
     legGroups[id] = { group:group, ex:ex, radius:radius };
     updateColLabelWorldPositions(leg, ex);
-    requestAnimationFrame(function(){ fadeOpacity(group, 0, 1, 260); });
+    fadeOpacity(group, prevOp, 1, 260);
 
     // dim other legs — rebuild them at the same exaggeration as the
     // focused leg so their altitude scale matches and routes still join
@@ -571,10 +606,11 @@
 
     var focusReserveFrac = hudBottomReserveFrac();
     applyBottomReserve(focusReserveFrac);
-    var frame = frameBox({
+    currentFramingBox = {
       minx:b.minx, maxx:b.maxx, minz:b.minz, maxz:b.maxz,
       miny:b.miny*ex, maxy:b.maxy*ex
-    }, focusReserveFrac);
+    };
+    var frame = frameBox(currentFramingBox, focusReserveFrac);
     flyTo(frame.camPos, frame.center, 950);
     scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
 
@@ -750,7 +786,7 @@
   }
 
   function updateColLabelScreenPositions(){
-    var halfW = window.innerWidth/2, halfH = window.innerHeight/2;
+    var halfW = vpW()/2, halfH = vpH()/2;
     var hudBoxes = getHudObstacleBoxes();
 
     // in the overview (no day focused), hovering a col's marker labels
@@ -842,19 +878,21 @@
         // line grazing the path is only cosmetic — penalized lightly so
         // it's still preferred over the unreadable cases, but yields to a
         // perfect (score 0) spot if one exists.
-        var chosen = null, chosenEdge = null, bestScore = Infinity;
+        var chosen = null, bestScore = Infinity;
         for (var c=0; c<LABEL_CANDIDATES.length && bestScore>0; c++){
           var cx = l.ax + LABEL_CANDIDATES[c][0], cy = l.ay + LABEL_CANDIDATES[c][1];
           var box = { cx:cx, cy:cy, hw:hw, hh:hh };
           if (!boxInViewport(box, vw, vh, 4)) continue;
-          var edge = boxEdgeToward(cx,cy,hw,hh,l.ax,l.ay);
+          // scoring-only: the leader line actually drawn is recomputed below
+          // against the label's real size, not this padded collision box
+          var candEdge = boxEdgeToward(cx,cy,hw,hh,l.ax,l.ay);
           var score = 0;
           if (placedBoxes.some(function(b){ return boxesOverlap(box,b,4); })) score += 1000;
           if (placedLines.some(function(ln){ return boxOverlapsSegment(box, ln.x1,ln.y1,ln.x2,ln.y2, PATH_CLEARANCE); })) score += 1000;
-          if (placedBoxes.some(function(b){ return boxOverlapsSegment(b, l.ax,l.ay,edge[0],edge[1], PATH_CLEARANCE); })) score += 1000;
-          if (placedLines.some(function(ln){ return segmentsIntersect(l.ax,l.ay,edge[0],edge[1], ln.x1,ln.y1,ln.x2,ln.y2); })) score += 10;
+          if (placedBoxes.some(function(b){ return boxOverlapsSegment(b, l.ax,l.ay,candEdge[0],candEdge[1], PATH_CLEARANCE); })) score += 1000;
+          if (placedLines.some(function(ln){ return segmentsIntersect(l.ax,l.ay,candEdge[0],candEdge[1], ln.x1,ln.y1,ln.x2,ln.y2); })) score += 10;
           if (boxOverlapsPath(box, pathScreen, PATH_CLEARANCE)) score += 1;
-          if (score < bestScore){ bestScore = score; chosen = box; chosenEdge = edge; }
+          if (score < bestScore){ bestScore = score; chosen = box; }
         }
         if (!chosen){
           var fx = LABEL_CANDIDATES[0];
@@ -863,16 +901,16 @@
         // last-resort safety net: never let a label render partly off-screen
         chosen.cx = Math.min(Math.max(chosen.cx, hw+4), vw-hw-4);
         chosen.cy = Math.min(Math.max(chosen.cy, hh+4), vh-hh-4);
-        if (!chosenEdge) chosenEdge = boxEdgeToward(chosen.cx, chosen.cy, hw, hh, l.ax, l.ay);
         placedBoxes.push(chosen);
         l.cx = chosen.cx; l.cy = chosen.cy;
 
         l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
         l.el.style.opacity = labelOpacity;
 
-        // chosenEdge targets the padded collision box (LABEL_PAD bigger than
-        // the label so neighbors keep a margin) — recompute against the
-        // label's actual rendered size so the line reaches its edge exactly
+        // the scoring pass worked against the padded collision box
+        // (LABEL_PAD bigger than the label so neighbors keep a margin) —
+        // recompute against the label's actual rendered size so the line
+        // reaches its edge exactly
         var edge = boxEdgeToward(chosen.cx, chosen.cy, l.w/2, l.h/2, l.ax, l.ay);
         l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
         l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
@@ -885,11 +923,57 @@
   }
 
   // ---- resize ----------------------------------------------------------------
-  window.addEventListener("resize", function(){
-    camera.aspect = window.innerWidth / window.innerHeight;
+  // A viewport change moves both things the framing depends on: the aspect
+  // ratio, and (a lot, on phones) how much height the bottom HUD takes. Only
+  // patching camera.aspect left the camera at a distance computed for the old
+  // shape, so rotating to landscape clipped the route off both sides. Refit
+  // against whatever is currently framed instead, keeping the direction the
+  // user has orbited to so dragging a window edge doesn't reset their view.
+  var framedOnce = vpValid();
+
+  function onViewportChange(){
+    var w = vpW(), h = vpH();
+    camera.aspect = w / h;
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+    renderer.setSize(w, h);
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+
+    if (!vpValid() || !currentFramingBox) return;
+
+    var reserve = hudBottomReserveFrac();
+    applyBottomReserve(reserve);
+
+    // Only inherit the current orbit direction when it came from a framing
+    // done at a real viewport size — after a zero-sized load it's the
+    // placeholder 1x1 framing and worth discarding. Mid-fly-to it's a
+    // transient angle, so let the canonical direction win and just retarget
+    // the tween rather than snapping out from under it.
+    var dir = null;
+    if (framedOnce && !tweenState){
+      var d = camera.position.clone().sub(controls.target);
+      if (isFinite(d.x) && isFinite(d.y) && isFinite(d.z) && d.lengthSq() > 1e-6) dir = d;
+    }
+
+    var frame = frameBox(currentFramingBox, reserve, dir);
+    if (tweenState){
+      tweenState.toPos = frame.camPos.clone();
+      tweenState.toTarget = frame.center.clone();
+    } else {
+      camera.position.copy(frame.camPos);
+      controls.target.copy(frame.center);
+      controls.update();
+    }
+    scene.fog.density = fogDensityForCamDist(frame.camPos.distanceTo(frame.center));
+    framedOnce = true;
+  }
+
+  window.addEventListener("resize", onViewportChange);
+  // a window resize alone misses a container that gains size while the window
+  // stays put — which is exactly the hidden/zero-sized-at-load case that used
+  // to strand the camera at NaN
+  if (window.ResizeObserver){
+    new ResizeObserver(onViewportChange).observe(container);
+  }
 
   // ---- init note ---------------------------------------------------------
   exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
