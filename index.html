@@ -416,6 +416,14 @@ body{
   .detail-card{max-width:none;}
 }
 
+@media (max-height:500px){
+  /* phone in landscape: too little vertical room for the route AND a
+     full day detail card without one crowding out the other — an id
+     selector so it wins over .detail-card.visible's display:block
+     regardless of source order */
+  #detail-card{display:none;}
+}
+
 .loading{
   position:fixed;
   inset:0;
