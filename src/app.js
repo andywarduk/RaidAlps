@@ -545,7 +545,15 @@
     return clamp(h / vpH() + 0.03, 0, 0.5);
   }
 
-  var DEFAULT_VIEW_DIR = new THREE.Vector3(0.58, 0.66, 0.92).normalize();
+  // The camera sits at center + this * distance, so the sign of z decides
+  // which end of the trip is nearest the viewer. It is negative because
+  // north is -z (see the compass labels): that puts the camera on the
+  // Thonon side, opening on Day 1 with the week running away from you
+  // towards Nice. It read +0.92 while the scene was still mirrored, which
+  // was the same north-side view; un-mirroring the geometry turned +z from
+  // north into south and swung the opening shot round to Day 7 in the
+  // foreground. This is the half of that fix that belongs to the camera.
+  var DEFAULT_VIEW_DIR = new THREE.Vector3(0.58, 0.66, -0.92).normalize();
 
   function frameBox(b, bottomReserveFrac, viewDir){
     bottomReserveFrac = bottomReserveFrac || 0;
