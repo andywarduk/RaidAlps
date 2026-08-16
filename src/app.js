@@ -472,11 +472,21 @@
   updateHotelLabelWorldPositions(OVERVIEW_EX);
 
   // ---- compass labels ------------------------------------------------------
-  // Anchored to the overview grid's fixed extent/center rather than whatever
-  // grid is currently on screen — the overview grid is always present (just
-  // dimmed to 0.04 while a day is focused, see focusLeg()/goOverview()), so
-  // this stays a stable regional reference instead of jumping around on
-  // every focus/overview transition. See README's route-data section: +x is
+  // Each label sits on the centre cross of whichever grid is currently drawn
+  // under the route — GridHelper's two centre lines are the "major" ones it
+  // colours differently, and N/E/S/W lie exactly along them, so the rose
+  // reads as part of the grid rather than as four words hanging in space.
+  //
+  // This used to be anchored to the overview grid's fixed extent and centre
+  // at all times, deliberately, so it would not jump on every focus/overview
+  // transition. But a focused day's grid is a different size in a different
+  // place — the overview grid is still there, just dimmed to 0.04 — so the
+  // labels stayed way out at regional distances while the visible grid was
+  // local, which is exactly what "floating in space" looks like. Following
+  // the visible grid and tweening between the two over the same 950ms as
+  // everything else gets the stability without the disconnection.
+  //
+  // See README's route-data section: +x is
   // east and north is **-z** (a plain lon/lat equirectangular projection with
   // the north axis negated), so this is directionally correct but not
   // survey-grade over the full extent.
@@ -489,15 +499,14 @@
   // fix as getting the route's plan shape right, so if these ever look
   // wrong again, suspect the projection, not this code.
   var compassLabelsRoot = document.getElementById("compass-labels");
-  // half the route's own bounding extent, not the padded grid size — frameBox()
-  // already guarantees the route bbox itself fits on screen at the overview
-  // framing, so this radius reliably stays in view in every direction too
-  var COMPASS_RADIUS = Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) / 2;
+
+  // unit directions along the grid's centre cross, not baked positions —
+  // where they land depends on which grid is current, which changes
   var compassPoints = [
-    { label:"N", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz - COMPASS_RADIUS) },
-    { label:"E", el:null, worldPos:new THREE.Vector3(overviewGridCx + COMPASS_RADIUS, 0, overviewGridCz) },
-    { label:"S", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz + COMPASS_RADIUS) },
-    { label:"W", el:null, worldPos:new THREE.Vector3(overviewGridCx - COMPASS_RADIUS, 0, overviewGridCz) }
+    { label:"N", el:null, dx:0,  dz:-1 },
+    { label:"E", el:null, dx:1,  dz:0  },
+    { label:"S", el:null, dx:0,  dz:1  },
+    { label:"W", el:null, dx:-1, dz:0  }
   ];
   compassPoints.forEach(function(p){
     var el = document.createElement("div");
@@ -507,15 +516,83 @@
     p.el = el;
   });
 
+  // centre and half-extent of the grid the rose is currently drawn on
+  var compassAnchor = { cx:overviewGridCx, cz:overviewGridCz, r:overviewGridSize/2 };
+  var compassTween = null;
+
+  function setCompassAnchor(cx, cz, r, duration){
+    if (!duration){
+      compassAnchor = { cx:cx, cz:cz, r:r };
+      compassTween = null;
+      return;
+    }
+    compassTween = {
+      from: { cx:compassAnchor.cx, cz:compassAnchor.cz, r:compassAnchor.r },
+      to:   { cx:cx, cz:cz, r:r },
+      t0: performance.now(), duration: duration
+    };
+  }
+
+  var compassWorld = new THREE.Vector3();
+
+  // How far along its centre line a label sits, as a fraction of the grid's
+  // half-extent. 1 is the very end of the line — where the grid stops — which
+  // is where these belong. The grid is deliberately drawn larger than the
+  // route it sits under (1.35x at overview, 1.5x focused) precisely so it
+  // runs past the frame, so that end is usually off-screen, and a label
+  // pinned to it would simply never be seen. Hence the clip below: the label
+  // slides back down its own line to the last point still on screen, so it
+  // is always ON the grid line, as far out along it as fits.
+  function clipToViewport(ax, ay, bx, by, vw, vh, margin){
+    // Liang-Barsky, returning how far along a->b the segment last sits inside
+    // the rect. A perspective projection maps a straight line to a straight
+    // line, so clipping in 2D after projecting both ends is exact — no need
+    // to march along the line in world space.
+    var t0 = 0, t1 = 1, dx = bx - ax, dy = by - ay;
+    var p = [-dx, dx, -dy, dy];
+    var q = [ax - margin, (vw - margin) - ax, ay - margin, (vh - margin) - ay];
+    for (var i = 0; i < 4; i++){
+      if (p[i] === 0){
+        if (q[i] < 0) return null;      // parallel to this edge and outside it
+      } else {
+        var t = q[i] / p[i];
+        if (p[i] < 0){ if (t > t1) return null; if (t > t0) t0 = t; }
+        else         { if (t < t0) return null; if (t < t1) t1 = t; }
+      }
+    }
+    return t1;
+  }
+
   function updateCompassLabelScreenPositions(){
     var halfW = vpW()/2, halfH = vpH()/2;
+    var vw = halfW*2, vh = halfH*2;
+
+    compassWorld.set(compassAnchor.cx, 0, compassAnchor.cz);
+    var centre = projectToScreen(compassWorld, halfW, halfH);
+
     compassPoints.forEach(function(p){
-      var sp = projectToScreen(p.worldPos, halfW, halfH);
-      if (sp.behind || sp.x < -40 || sp.x > halfW*2+40 || sp.y < -40 || sp.y > halfH*2+40){
+      compassWorld.set(
+        compassAnchor.cx + p.dx * compassAnchor.r,
+        0,
+        compassAnchor.cz + p.dz * compassAnchor.r
+      );
+      var end = projectToScreen(compassWorld, halfW, halfH);
+
+      // Either endpoint behind the camera makes the 2D segment meaningless —
+      // the projection of a point behind the eye lands on the wrong side.
+      if (centre.behind || end.behind){
         p.el.style.opacity = 0;
         return;
       }
-      p.el.style.transform = "translate(-50%,-50%) translate(" + sp.x.toFixed(1) + "px," + sp.y.toFixed(1) + "px)";
+
+      var t = clipToViewport(centre.x, centre.y, end.x, end.y, vw, vh, 22);
+      if (t === null){
+        p.el.style.opacity = 0;   // this line doesn't cross the viewport at all
+        return;
+      }
+      var x = centre.x + (end.x - centre.x) * t;
+      var y = centre.y + (end.y - centre.y) * t;
+      p.el.style.transform = "translate(-50%,-50%) translate(" + x.toFixed(1) + "px," + y.toFixed(1) + "px)";
       p.el.style.opacity = 1;
     });
   }
@@ -931,6 +1008,9 @@
     scene.add(focusGrid);
     fadeOpacity(focusGrid, 0, 0.35, 950);
     fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.04, 950);
+    // the rose rides across to the incoming grid over the same 950ms, so it
+    // arrives on the centre lines that are being faded up
+    setCompassAnchor(focusGridParams.cx, focusGridParams.cz, focusGridParams.size/2, 950);
 
     activeLegId = id;
     setActiveChip(id);
@@ -975,6 +1055,7 @@
     });
     if (focusGrid){ retireGrid(focusGrid, 950); focusGrid = null; focusGridParams = null; }
     fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.35, 950);
+    setCompassAnchor(overviewGridCx, overviewGridCz, overviewGridSize/2, 950);
 
     overviewFrame = computeOverviewFrame();
     startReserveTween(lastFrameReserve, 950);
@@ -1099,6 +1180,19 @@
         applyDisplayEx(exTween.to);   // land exactly, so scale.y is exactly 1
         exTween = null;
       }
+    }
+
+    if (compassTween){
+      animating = true;
+      var pt = clamp((now - compassTween.t0) / compassTween.duration, 0, 1);
+      var pe = easeInOutCubic(pt);
+      var cf = compassTween.from, ct = compassTween.to;
+      compassAnchor = {
+        cx: cf.cx + (ct.cx - cf.cx) * pe,
+        cz: cf.cz + (ct.cz - cf.cz) * pe,
+        r:  cf.r  + (ct.r  - cf.r ) * pe
+      };
+      if (pt >= 1) compassTween = null;
     }
 
     if (fadeTweens.length){
