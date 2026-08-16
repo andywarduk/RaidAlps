@@ -125,10 +125,26 @@ html,body{
 
 .theme-toggle{
   align-self:flex-end;
+  appearance:none;
+  border:none;
+  background:transparent;
+  color:var(--text-secondary);
+  padding:6px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  cursor:pointer;
+  pointer-events:auto;
+  transition:background 120ms ease, color 120ms ease;
 }
-.theme-toggle .chip{
-  padding:6px 10px;
-  font-size:10px;
+.theme-toggle:hover{
+  background:var(--overlay-weak);
+  color:var(--text-primary);
+}
+.theme-toggle svg{
+  width:18px;
+  height:18px;
+  display:block;
 }
 
 .masthead{

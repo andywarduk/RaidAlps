@@ -1284,11 +1284,17 @@
   // ---- theme toggle --------------------------------------------------------
   // index.html's inline head script already set data-theme (if an explicit
   // choice was stored) before style.css was even fetched, so the CSS side is
-  // already correct by the time this runs — this just wires up the buttons
+  // already correct by the time this runs — this just wires up the button
   // and keeps the Three.js scene (bg/fog/grids) in sync with future changes.
   var THEME_KEY = "raidalps-theme";
+  var THEME_CYCLE = ["system", "dark", "light"];
+  var THEME_ICONS = {
+    system: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="12" rx="1"/><path d="M8 20h8M12 16.5V20"/></svg>',
+    dark:   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20.5 14.2A8.5 8.5 0 1 1 9.8 3.5a7 7 0 0 0 10.7 10.7Z"/></svg>',
+    light:  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2.4M12 19.1v2.4M4.6 12H2.2M21.8 12h-2.4M5.6 5.6l1.7 1.7M16.7 16.7l1.7 1.7M18.4 5.6l-1.7 1.7M7.3 16.7l-1.7 1.7"/></svg>'
+  };
+  var THEME_LABELS = { system:"Auto", dark:"Dark", light:"Light" };
   var themeToggle = document.getElementById("theme-toggle");
-  var themeButtons = themeToggle ? Array.prototype.slice.call(themeToggle.querySelectorAll("[data-theme-choice]")) : [];
 
   function storedTheme(){
     try { return localStorage.getItem(THEME_KEY); } catch(e){ return null; }
@@ -1299,23 +1305,28 @@
       else localStorage.setItem(THEME_KEY, choice);
     } catch(e){}
   }
-  function updateThemeButtons(){
+  function updateThemeButton(){
     var choice = storedTheme() || "system";
-    themeButtons.forEach(function(b){
-      b.classList.toggle("active", b.getAttribute("data-theme-choice") === choice);
-    });
+    if (!themeToggle) return;
+    themeToggle.innerHTML = THEME_ICONS[choice];
+    themeToggle.setAttribute("aria-label", "Theme: " + THEME_LABELS[choice] + " (click to change)");
+    themeToggle.title = "Theme: " + THEME_LABELS[choice];
   }
   function selectTheme(choice){
     setStoredTheme(choice);
     if (choice === "light" || choice === "dark") document.documentElement.setAttribute("data-theme", choice);
     else document.documentElement.removeAttribute("data-theme");
-    updateThemeButtons();
+    updateThemeButton();
     applyThemeToScene();
   }
-  themeButtons.forEach(function(btn){
-    btn.addEventListener("click", function(){ selectTheme(btn.getAttribute("data-theme-choice")); });
-  });
-  updateThemeButtons();
+  if (themeToggle){
+    themeToggle.addEventListener("click", function(){
+      var current = storedTheme() || "system";
+      var next = THEME_CYCLE[(THEME_CYCLE.indexOf(current) + 1) % THEME_CYCLE.length];
+      selectTheme(next);
+    });
+  }
+  updateThemeButton();
 
   // only live-updates while "system" is in effect — an explicit choice
   // already overrides the media query in CSS and shouldn't react to it
