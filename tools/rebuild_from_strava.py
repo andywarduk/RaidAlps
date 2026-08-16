@@ -247,8 +247,19 @@ def main():
     R = 6371000.0
 
     def project(lat, lon):
+        # +x east, and north is -z, NOT +z. The obvious lon->x, lat->z
+        # mapping makes (east, north, up) = (x, z, y), and x cross z is -y
+        # where real-world east cross north is +up — a left-handed frame,
+        # which three.js renders as a mirror image of the real map. No
+        # camera angle can undo that (a mirror is not a rotation), and
+        # OrbitControls' maxPolarAngle keeps the camera above the ground
+        # plane, so every view of it was flipped east-for-west: the whole
+        # traverse and every hairpin came out as their own reflection.
+        # Negating z makes the frame right-handed and the scene a true map.
+        # Anything reading this data must treat -z as north — see
+        # src/app.js's compass labels and tools/build_hotel_data.py.
         x = math.radians(lon - lon0) * math.cos(math.radians(lat0)) * R
-        z = math.radians(lat - lat0) * R
+        z = -math.radians(lat - lat0) * R
         return x, z
 
     legs = {}

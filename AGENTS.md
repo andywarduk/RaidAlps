@@ -142,6 +142,16 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   route dataset. See README for provenance; don't hand-edit this,
   regenerate it with `tools/rebuild_from_strava.py` if it ever needs to
   change.
+  **`+x` is east and north is `-z`.** The negated north axis is load-
+  bearing, not a style choice: `lon -> x, lat -> z` makes
+  (east, north, up) = (`x`, `z`, `y`) and `x × z = -y`, a left-handed
+  frame that Three.js renders as a mirror image of the real map. No
+  camera angle undoes it — a mirror is not a rotation, and
+  `maxPolarAngle` keeps the camera above the ground plane. It shipped
+  that way for a while and reads as plausible, because a route only
+  looks obviously wrong if you know its real shape; the compass rose is
+  what gives it away (east 90° *anticlockwise* of north). If you ever
+  reintroduce a `lat -> +z` projection, everything mirrors again.
 - `src/data/hotels.geojson` + `src/data/hotel-data.js`: the eight overnight
   stops. The **`.geojson` is the editable one** (plain WGS84 lon/lat/
   elevation); the `.js` is generated from it by
@@ -466,6 +476,17 @@ in a logical sense — CSS doesn't care about that, only about specificity
 
 ## Testing tooling gotchas (this session's scar tissue)
 
+- **The dev server caches `src/data/*.js`, and a stale one looks like a
+  bug in your change.** `python3 -m http.server` serves
+  `Last-Modified`/304s, so after regenerating a data file the browser can
+  keep the old copy while picking up your edited `app.js` — half-new
+  state that produces symptoms nothing in the diff explains. It cost real
+  time here: `route-data.js` stayed on the pre-flip north axis while
+  `hotel-data.js` had already flipped, which put every hotel on the wrong
+  side of the route and read exactly like a broken framing calculation.
+  Before trusting any measurement, assert on the data itself
+  (`window.ROUTE_DATA.legs.day1.pts[0]`), and force a refresh with
+  `await fetch(f, {cache:'reload'})` over each file, then `location.reload()`.
 - **The desktop browser tool's click/drag coordinates are unreliable for
   this app specifically.** Clicks on chip buttons frequently land as a
   text-selection drag instead of a click, or time out, for no discernible

@@ -477,17 +477,26 @@
   // dimmed to 0.04 while a day is focused, see focusLeg()/goOverview()), so
   // this stays a stable regional reference instead of jumping around on
   // every focus/overview transition. See README's route-data section: +x is
-  // east and +z is north (a plain lon/lat equirectangular projection), so
-  // this is directionally correct but not survey-grade over the full extent.
+  // east and north is **-z** (a plain lon/lat equirectangular projection with
+  // the north axis negated), so this is directionally correct but not
+  // survey-grade over the full extent.
+  //
+  // The negation is not cosmetic and these four labels are where it shows.
+  // (east, north, up) = (+x, +z, +y) is a left-handed frame — x cross z is
+  // -y where real east cross north is +up — which three.js renders as a
+  // mirror image of the real map, east and west swapped, at every camera
+  // angle. Getting a compass rose that reads correctly is exactly the same
+  // fix as getting the route's plan shape right, so if these ever look
+  // wrong again, suspect the projection, not this code.
   var compassLabelsRoot = document.getElementById("compass-labels");
   // half the route's own bounding extent, not the padded grid size — frameBox()
   // already guarantees the route bbox itself fits on screen at the overview
   // framing, so this radius reliably stays in view in every direction too
   var COMPASS_RADIUS = Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) / 2;
   var compassPoints = [
-    { label:"N", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz + COMPASS_RADIUS) },
+    { label:"N", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz - COMPASS_RADIUS) },
     { label:"E", el:null, worldPos:new THREE.Vector3(overviewGridCx + COMPASS_RADIUS, 0, overviewGridCz) },
-    { label:"S", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz - COMPASS_RADIUS) },
+    { label:"S", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz + COMPASS_RADIUS) },
     { label:"W", el:null, worldPos:new THREE.Vector3(overviewGridCx - COMPASS_RADIUS, 0, overviewGridCz) }
   ];
   compassPoints.forEach(function(p){

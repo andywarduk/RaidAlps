@@ -73,9 +73,13 @@ FIT_EXCLUDE = {
 
 
 def project(lat, lon):
-    """WGS84 -> the local metre grid route-data.js is expressed in."""
+    """WGS84 -> the local metre grid route-data.js is expressed in.
+
+    North is -z, not +z — see rebuild_from_strava.py's project() for why
+    (the +z version is a left-handed frame and renders mirrored). Keep the
+    two in step: they must produce identical output for identical input."""
     x = math.radians(lon - LON0) * math.cos(math.radians(LAT0)) * R
-    z = math.radians(lat - LAT0) * R
+    z = -math.radians(lat - LAT0) * R
     return x, z
 
 
@@ -101,7 +105,8 @@ def verify_origin(route):
     if len(pairs) < 12:
         raise SystemExit(f"only {len(pairs)} usable cols for the origin fit — too few to trust")
 
-    lat0 = statistics.fmean(lat - math.degrees(pt[2] / R) for (lat, _), pt in pairs)
+    # pt[2] = -(lat - lat0) in radians * R, so the sign here follows project()
+    lat0 = statistics.fmean(lat + math.degrees(pt[2] / R) for (lat, _), pt in pairs)
     k = math.radians(1) * math.cos(math.radians(lat0)) * R
     lon0 = statistics.fmean(lon - pt[0] / k for (_, lon), pt in pairs)
 

@@ -85,8 +85,17 @@ run, never committed):
 `src/data/route-data.js` sets a `window.ROUTE_DATA` object (inlined into
 `build/artifact/index.html` by `./build.sh`): per-day polylines
 (`[x, altitude, z]` points in a local, unscaled coordinate system — a
-flat equirectangular projection referenced to the trip's centroid, not
-tied to true north) plus each day's list of named cols in ride order.
+flat equirectangular projection referenced to the trip's centroid) plus
+each day's list of named cols in ride order.
+
+**`+x` is east and north is `-z`.** The negated north axis matters: the
+obvious `lon -> x, lat -> z` mapping makes (east, north, up) =
+(`x`, `z`, `y`), and `x × z = -y` where real-world east × north is
+*up*. That is a left-handed frame, which Three.js renders as a mirror
+image of the real map — east and west swapped, the traverse and every
+hairpin reflected — and no camera angle undoes it, since a mirror is
+not a rotation and the camera is always above the ground plane.
+Negating `z` makes the frame right-handed and the plan shape true.
 
 The eight rides (day 3 was split into two activities) are real Strava
 activities — see `STRAVA_ACTIVITY_IDS` in `tools/rebuild_from_strava.py`.
