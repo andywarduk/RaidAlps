@@ -150,9 +150,11 @@
   var HOVER_RADIUS = 14;
   renderer.domElement.addEventListener("mousemove", function(e){
     hoverMouseX = e.clientX; hoverMouseY = e.clientY;
+    requestRender();
   });
   renderer.domElement.addEventListener("mouseleave", function(){
     hoverMouseX = -1e9; hoverMouseY = -1e9;
+    requestRender();
   });
 
   // touch has no hover state at all, so tapping a marker toggles its label
@@ -183,6 +185,7 @@
     });
     tappedMarker = (best && tappedMarker && best.legId === tappedMarker.legId && best.idx === tappedMarker.idx)
       ? null : best;
+    requestRender();
   });
 
   var hemi = new THREE.HemisphereLight(0x9fc3ff, 0x0a0d12, 1.05);
@@ -687,6 +690,7 @@
   }
 
   function focusLeg(id){
+    requestRender();
     tappedMarker = null;
     var leg = LEGS.filter(function(l){ return l.id===id; })[0];
     var b = bboxOfPts(leg.pts);
@@ -762,6 +766,7 @@
   }
 
   function goOverview(){
+    requestRender();
     tappedMarker = null;
     hideDetail(); // before re-measuring the HUD reserve, so its (stale, now-hidden) content doesn't count
     LEGS.forEach(function(leg){
@@ -810,10 +815,65 @@
   }
 
   // ---- animation loop --------------------------------------------------------
+  // Renders on demand rather than every frame. Nothing here is animated by
+  // default — no auto-rotate, no shader that evolves with time — so once the
+  // camera has settled the scene is completely static, and redrawing it 60
+  // times a second was burning CPU and GPU to produce an identical image.
+  // That is not free: at devicePixelRatio 3 the buffer is 2.45 MP, and the
+  // per-frame label pass also does a full DOM read/write cycle.
+  //
+  // Anything that changes what is on screen must call requestRender(). The
+  // failure mode for forgetting is a stale frame, so the list of callers is
+  // deliberately short: the tweens below, OrbitControls' own change event
+  // (which covers all drag/zoom/damping), pointer moves that can re-target a
+  // hover label, viewport changes, and the webfont finishing loading.
+  var needsRender = true;
+  function requestRender(){ needsRender = true; }
+
+  // Whether the camera has drifted far enough since the last drawn frame to
+  // be worth redrawing, measured in approximate screen pixels.
+  //
+  // OrbitControls.update() already returns a "did it move" flag, but it is
+  // useless here: it compares against an absolute EPS of 1e-6 while this
+  // scene spans hundreds of thousands of world units, so a damped delta
+  // decaying geometrically stays above that threshold essentially forever.
+  // Trusting it left the page rendering indefinitely after every drag, which
+  // is the whole problem this is meant to solve.
+  //
+  // Comparing against the last *drawn* state rather than the last frame is
+  // what makes this converge: a slow drift accumulates until it is worth a
+  // frame, and once the damping tail's entire remaining travel is below the
+  // threshold, no further frame is ever drawn.
+  var lastDrawnPos = new THREE.Vector3(), lastDrawnTarget = new THREE.Vector3();
+  var haveDrawn = false;
+
+  function cameraMovedVisibly(){
+    if (!haveDrawn) return true;
+    var moved = camera.position.distanceTo(lastDrawnPos) +
+                controls.target.distanceTo(lastDrawnTarget);
+    if (moved === 0) return false;
+    var camDist = Math.max(camera.position.distanceTo(controls.target), 1);
+    var vFov = camera.fov * Math.PI / 180;
+    // 1/20th of a pixel. Raising this to a quarter pixel was tried and
+    // changed nothing measurable — the damping tail is real motion, not an
+    // artefact of the threshold — so the more conservative value stays.
+    return (moved / camDist) * (vpH() / vFov) > 0.05;
+  }
+  controls.addEventListener("change", requestRender);
+  if (document.fonts && document.fonts.ready){
+    // a font swap changes label widths, and so the collision layout
+    document.fonts.ready.then(requestRender);
+  }
+
   function animate(now){
     requestAnimationFrame(animate);
 
+    // set by any tween that is mid-flight this frame, so the loop keeps
+    // drawing until everything has settled
+    var animating = false;
+
     if (tweenState){
+      animating = true;
       var t = (now - tweenState.t0) / tweenState.duration;
       if (t >= 1){
         camera.position.copy(tweenState.toPos);
@@ -837,12 +897,14 @@
     }
 
     if (reserveTween){
+      animating = true;
       var rt = clamp((now - reserveTween.t0) / reserveTween.duration, 0, 1);
       applyBottomReserve(reserveTween.from + (reserveTween.to - reserveTween.from) * easeInOutCubic(rt));
       if (rt >= 1) reserveTween = null;
     }
 
     if (exTween){
+      animating = true;
       var et = clamp((now - exTween.t0) / exTween.duration, 0, 1);
       applyDisplayEx(exTween.from + (exTween.to - exTween.from) * easeInOutCubic(et));
       if (et >= 1){
@@ -852,6 +914,7 @@
     }
 
     if (fadeTweens.length){
+      animating = true;
       fadeTweens = fadeTweens.filter(function(f){
         var t = clamp((now - f.t0) / f.duration, 0, 1);
         var op = f.from + (f.to - f.from) * t;
@@ -861,7 +924,13 @@
       });
     }
 
+    // Must run every frame regardless: this is what applies damping.
+    // Its return value is deliberately ignored — see cameraMovedVisibly().
     controls.update();
+
+    if (!animating && !needsRender && !cameraMovedVisibly()) return;
+    needsRender = false;
+
     // OrbitControls only moves the camera object; matrixWorldInverse (what
     // Vector3.project relies on) isn't recomputed until the camera is
     // rendered, which happens *after* the label projection below. Without
@@ -870,6 +939,10 @@
     camera.updateMatrixWorld();
     updateColLabelScreenPositions();
     renderer.render(scene, camera);
+
+    lastDrawnPos.copy(camera.position);
+    lastDrawnTarget.copy(controls.target);
+    haveDrawn = true;
   }
   requestAnimationFrame(animate);
 
@@ -1113,6 +1186,7 @@
   var framedOnce = vpValid();
 
   function onViewportChange(){
+    requestRender();
     var w = vpW(), h = vpH();
     camera.aspect = w / h;
     renderer.setPixelRatio(window.devicePixelRatio||1);

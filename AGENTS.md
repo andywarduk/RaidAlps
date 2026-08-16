@@ -154,6 +154,51 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   detail card), focus/overview transitions (`focusLeg`, `goOverview`), the
   `animate()` render loop, and `onViewportChange()` at the end.
 
+## The render loop draws on demand, not every frame
+
+Nothing in this scene animates by itself — no auto-rotate, no time-varying
+shader — so once the camera settles the image is static. `animate()` still
+runs on every `requestAnimationFrame`, but it returns early without
+rendering unless something actually changed. Idle went from 60 renders a
+second to **zero**, which matters more than it sounds: at
+`devicePixelRatio` 3 each of those was a 2.45 MP redraw, plus a full DOM
+read/write cycle in the label pass.
+
+A frame is drawn when any of these holds:
+
+- a tween is mid-flight (`tweenState`, `exTween`, `reserveTween`, or a
+  non-empty `fadeTweens`) — each sets a local `animating` flag
+- `requestRender()` was called: OrbitControls' `change` event, pointer
+  moves that can re-target a hover label, `focusLeg`/`goOverview`,
+  `onViewportChange`, or the webfont finishing loading
+- `cameraMovedVisibly()` — see below
+
+**Do not use `OrbitControls.update()`'s return value to decide this.** It
+reports movement against an absolute `EPS` of `1e-6` while this scene spans
+hundreds of thousands of world units, so a damped delta decaying
+geometrically stays above that threshold effectively forever. Wiring it up
+that way left the page rendering indefinitely after every drag, defeating
+the entire change. `update()` must still be *called* every frame — that is
+what applies damping — but its boolean is ignored.
+
+Instead `cameraMovedVisibly()` compares the camera and target against the
+last **drawn** state (not the last frame) and converts the delta to
+approximate screen pixels, with a threshold of 1/20th of a pixel. Comparing
+against the last drawn state is what makes it converge: a slow drift
+accumulates until it is worth a frame, and once the damping tail's entire
+remaining travel is below the threshold, nothing is ever drawn again.
+
+If you add anything that changes what is on screen, call `requestRender()`.
+The failure mode for forgetting is a stale frame.
+
+One testing note: verifying this in the preview pane is misleading. That
+pane is hidden, so real rAF is paused and the harness pumps frames by hand;
+a resize between the last pumped render and a screenshot clears the drawing
+buffer and leaves the canvas looking blank or half-drawn. That is an
+artefact of the harness, not the app. Confirmed properly in the iOS
+Simulator, where rAF runs for real: after 8 seconds idle with zero renders
+the scene is fully intact, and a tap resumes normally.
+
 ## Device pixel ratio
 
 `renderer.setPixelRatio(window.devicePixelRatio||1)` — **uncapped**, in two
