@@ -184,6 +184,105 @@ wrong box. Details worth knowing:
   listener, because a container can gain size while the window doesn't —
   which is exactly the hidden-iframe case.
 
+## Elevation exaggeration
+
+Not a fixed multiplier — it's solved so the scaled vertical extent is a
+fixed fraction of the horizontal one, `altRange × ex = k × diag`, where
+`diag` is the **ground-plane** diagonal (`diag2D` uses x and z only) and
+`k` is `0.22` for the overview, `0.34` for a focused day. That's why every
+day reads with comparable relief regardless of length, and why zooming
+into a day always looks more dramatic than the same stretch in the
+overview. Current data lands on ×25 overview and ×5–×17 per day; the
+clamps (`5..60`, `3..22`) never engage and are purely defensive, as is the
+`Math.max(1, altRange)`. Note it scales *absolute* altitude, so the route
+floats `minAltitude × ex` above the `y=0` grid rather than sitting on it.
+
+Animating it is awkward, because `buildLegGroup` bakes `ex` into vertex
+positions (`p[1]*ex`) and applies the tube radius in that already-scaled
+space, so a tube is only round at the `ex` it was built at. Both obvious
+approaches are dead ends: rebuilding geometry per frame costs **~20 ms**
+for the seven legs (43k vertices) — more than a whole 60fps frame — and
+baking `ex=1` so `scale.y` could carry it permanently would render every
+tube as a flat ribbon. So geometry is still built once at the destination
+`ex`, and `applyDisplayEx()` drives `group.scale.y` from `fromEx/toEx` to
+exactly `1`, which leaves the resting state identical to building at
+`toEx` outright. Points to keep in mind if you touch it:
+
+- The transient non-uniform scale does squash tubes and col markers, but
+  it's largest at the start of the flight — when the camera is furthest
+  and the tube is about a pixel wide — and is gone by the time the camera
+  is close enough for the cross-section to read. Verified acceptable even
+  on the worst case, overview → Day 4 (×25 → ×5, `scale.y` starting 4.58).
+- `displayEx` is the exaggeration actually on screen. Anything that needs
+  where the route *is drawn* must use it, not `legGroups[id].ex`, which is
+  the baked value and is wrong mid-transition — `updateColLabelScreenPositions`
+  projects the collision path this way, and col label world positions are
+  refreshed from it every frame so leader lines stay anchored (measured
+  0 px drift through a transition).
+- Starting a new transition mid-transition is fine: `startExTween` picks
+  up from the current `displayEx`.
+
+## The one rule for transitions: nothing snaps to the destination
+
+This is the single most productive thing to know about this codebase. A
+`flyTo` moves the camera over 950ms, and **every quantity derived from
+where the camera is must travel with it**. Each time one was instead
+applied at the moment of the click, it produced a visible glitch, and each
+was found and fixed separately before the pattern was obvious. All five:
+
+| what | applied at departure gave | now |
+|---|---|---|
+| `scene.fog.density` | fog factor **0.9999** — route rendered as pure background, so the day appeared black and faded in | derived per frame from actual camera→target distance |
+| elevation exaggeration | whole route instantly rescaled vertically | `applyDisplayEx()` eases `scale.y` to exactly 1 |
+| tube radius | route dropped to **0 rendered pixels** zooming in; **35 px** fat lines zooming out | direction-aware cross-fade + 1px line floor |
+| grid opacity | `overviewGrid` 0.35 → 0.04 in one step, darkening most of the frame (grid is ~13,500px vs the route's ~1,200) | cross-faded over the flight |
+| HUD bottom reserve | detail card grows `#hud-bottom` 92→231px, `setViewOffset` shoved the route up **34.6px** before the flight started | `startReserveTween()` eases the fraction |
+
+If you add anything else that depends on camera distance or on HUD
+geometry, assume it belongs on this list. The tell is always the same: a
+discontinuity at the instant of the click, or in the first frame or two.
+
+Two diagnostics that saved time, worth reusing:
+
+- **Transparent vs. black tells opacity from fog.** The fog colour is
+  `--bg`, so anything fogged goes *black*, not see-through. An apparent
+  "fade in" that is black is fog, not an opacity tween.
+- **Measure the route with the grid hidden.** The grid dominates a naive
+  lit-pixel count, and it dims deliberately on focus — reading that as the
+  route disappearing sent me down a wrong path once. Hide `GridHelper`
+  objects before counting.
+
+## Tube radius, and why the route needs a line down its middle
+
+`buildLegGroup` also emits a plain `THREE.Line` along each run's
+centreline. That is not decoration — it's a width floor. Tube radius is
+picked to hold a roughly constant *apparent* width, so it tracks camera
+distance (206.9 for the overview at ~545,000; 20.7 for Day 4 at ~47,000).
+Two baked radii can never both be right mid-flight: over that flight the
+outgoing radius reads 1.8px then 20px, and the incoming one 0.8px then
+2.1px. There is no crossover where both are acceptable — the gap *is* the
+10× radius ratio, so no amount of retiming fixes it. A line is 1px at any
+distance, so it carries the route across the whole flight. At rest it sits
+inside the wider tube and is invisible.
+
+On top of that, `swapDelayFor(oldRadius, newRadius)` decides *which end* of
+the flight the geometry swap happens at:
+
+- **Radius shrinking** (zooming in): swap immediately. The outgoing tube
+  balloons as the camera closes, so it's retired inside 300ms while still
+  ~2px; the line floor covers the incoming tube being thin.
+- **Radius growing** (zooming out): delay 650ms. The incoming overview
+  radius would read ~20px while the camera is still close, so hold the
+  outgoing thin geometry — the line floor keeps it visible as it recedes —
+  and swap near the end.
+
+Capture the old radius *before* the rebuild. `goOverview` briefly had this
+wrong, comparing `legGroups[].radius` against `OVERVIEW_RADIUS` after the
+rebuild had already set it to exactly that, so the delay was always 0.
+
+Verified end state: every transition peaks at exactly the destination's own
+resting width (2.9–4.9px depending on day), in both directions.
+
 ## Touch vs. mouse handling
 
 Two features (col label hover-to-reveal-elevation, overview marker
@@ -313,32 +412,15 @@ in a logical sense — CSS doesn't care about that, only about specificity
   time) inline elevation reveal. The elevation pill is now
   `position:absolute` specifically so it can never again perturb the
   label's own measured size — don't put it back in normal flow.
-- The focused day appearing to start black and fade in when you zoom into
-  it from the overview, despite already being fully coloured there:
-  **fixed — it had two independent causes**, worth knowing about because
-  fixing the first one alone does not make the symptom go away.
-  1. *Opacity.* `focusLeg()` rebuilds the day's group at higher fidelity,
-     and it used to `setGroupOpacity(group, 0)` and fade `0 -> 1`
-     unconditionally, so the day blinked out and re-appeared. It now
-     carries the outgoing group's `currentOpacity()` across the swap —
-     exactly what the sibling legs in the same function already did — a
-     no-op coming from the overview (already 1) while still running the
-     real `0.22 -> 1` reveal coming from another focused day.
-  2. *Fog, which was the dominant one.* `focusLeg()`/`goOverview()` set
-     `scene.fog.density` to the **destination** density immediately, at the
-     start of a 950 ms `flyTo`. `fogDensityForCamDist()` is calibrated so
-     density x distance lands near 0.6 at the distance it's given, so
-     applying the focus density while the camera was still ~5x further out
-     put that product near 3 — and `FogExp2` squares it. Measured fog
-     factor at the first frame was **0.9999**: the route rendered as
-     essentially pure background colour, then emerged over the flight.
-     `animate()` now derives the density from where the camera actually is
-     on each frame of a tween, starting at the current correct value and
-     landing exactly on the destination one (verified: same resting
-     densities as before, 1.177e-6 overview / 6.642e-6 Day 1).
-
-  Two lessons for next time. Opacity and fog produce a similar-looking
-  fade, but *transparent* vs *black* tells them apart — black means fog,
-  since the fog colour is `--bg`. And anything derived from camera distance
-  has to be animated alongside a `flyTo`, not snapped at the start of one;
-  check `fogDensityForCamDist` callers if you add another.
+- Anything odd in the first frames of a day/overview transition — the route
+  starting black, going invisible, rescaling, fattening, or jumping up the
+  screen: **all fixed**, and all the same root cause. See "The one rule for
+  transitions" above rather than re-deriving them; they were found and
+  fixed one at a time over several rounds because each fix exposed the next.
+  One extra, opacity-specific, not in that table: `focusLeg()` used to
+  `setGroupOpacity(group, 0)` and fade `0 -> 1` unconditionally, so a day
+  focused straight from the overview blinked out despite already being
+  fully coloured. It now carries the outgoing opacity across the swap, as
+  the sibling legs in the same function already did. Check *both* entry
+  paths if you touch it — that bug was invisible coming from another day,
+  where the group really was dimmed at 0.22.

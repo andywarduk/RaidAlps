@@ -239,6 +239,23 @@
       });
       var mesh = new THREE.Mesh(geo, mat);
       group.add(mesh);
+
+      // A 1px line down the same centreline, as a width floor. The tube's
+      // on-screen width scales with 1/distance, and the radius is chosen for
+      // the resting camera distance — so during a fly-to, when the camera is
+      // still far out but the geometry has already been rebuilt for the
+      // destination, the tube can drop below one pixel and effectively
+      // vanish. Two baked radii can never both be right: over the Day 4
+      // flight the camera closes from ~545,000 to ~47,000, where the outgoing
+      // radius reads 1.8px then 20px, and the incoming one 0.8px then 2.1px.
+      // A line is one pixel wide at any distance, so it holds the route
+      // visible across the whole flight regardless. At rest it sits inside
+      // the (wider) tube and is hidden by it.
+      var lineGeo = new THREE.BufferGeometry().setFromPoints(vecs);
+      var lineMat = new THREE.LineBasicMaterial({
+        color: colorObj, transparent: true, opacity: 1
+      });
+      group.add(new THREE.Line(lineGeo, lineMat));
     });
 
     // one ball per named col, at its actual position on the route
@@ -411,13 +428,32 @@
   // for the initial framing but left controls.target off-center, so
   // orbiting away from that framing made the route visibly drift instead
   // of rotating in place.
+  var displayReserve = 0;   // the reserve fraction currently in the projection
+  var reserveTween = null;
+
   function applyBottomReserve(bottomReserveFrac){
+    displayReserve = bottomReserveFrac;
     if (bottomReserveFrac > 0){
       var w = vpW(), h = vpH();
       camera.setViewOffset(w, h, 0, h * bottomReserveFrac / 4, w, h);
     } else if (camera.view){
       camera.clearViewOffset();
     }
+  }
+
+  // Focusing a day shows the detail card, which makes #hud-bottom about 2.5x
+  // taller (92px -> 231px here) and so demands a much bigger reserve. Applied
+  // on the spot that re-offsets the projection instantly and the route visibly
+  // jumps up the screen — measured 34.6px — before the fly-to has even
+  // started. Like the fog, the exaggeration and the tube radius, the reserve
+  // belongs to the destination, so it travels with the camera instead.
+  function startReserveTween(toFrac, duration){
+    if (Math.abs(displayReserve - toFrac) < 0.0005){
+      applyBottomReserve(toFrac);
+      reserveTween = null;
+      return;
+    }
+    reserveTween = { from: displayReserve, to: toFrac, t0: performance.now(), duration: duration || 950 };
   }
 
   var tweenState = null;
@@ -433,14 +469,116 @@
   }
   function easeInOutCubic(t){ return t<0.5 ? 4*t*t*t : 1-Math.pow(-2*t+2,3)/2; }
 
+  // ---- elevation exaggeration transitions ----------------------------------
+  // Each leg's geometry is built with the exaggeration baked into its vertex
+  // positions (buildLegGroup does p[1]*ex), and the tube radius is applied in
+  // that already-scaled space, so a tube is only truly round at the ex it was
+  // built at. That rules out the two obvious ways to animate ex: rebuilding
+  // the geometry per frame costs ~20ms for the seven legs (43k vertices) —
+  // over a whole 60fps frame — and baking ex=1 so scale.y could carry it
+  // permanently would render every tube as a flat ribbon.
+  //
+  // So geometry is still built once at the *destination* ex, and scale.y
+  // carries the difference: it starts at fromEx/toEx and eases to exactly 1,
+  // which leaves the resting state identical to building at toEx outright.
+  // The transient non-uniform scale squashes the tubes and col markers, but
+  // it is largest at the start of the flight — exactly when the camera is
+  // furthest away and the tube covers about a pixel — and has gone by the
+  // time the camera is close enough for the cross-section to read.
+  var displayEx = OVERVIEW_EX;   // the exaggeration actually on screen
+  var exTween = null;
+
+  // Geometry on its way out, kept alive and cross-faded rather than disposed
+  // on the spot. The tube radius is baked into TubeGeometry just like ex is,
+  // but unlike ex it can't be carried by scale.y — a uniform group scale
+  // would move the vertices too. And the radius really does have to change:
+  // it's chosen to hold a roughly constant *apparent* width, so it tracks the
+  // camera distance (overview 206.9 at ~450k away, Day 4 20.7 at ~38k).
+  // Swapping it on the spot dropped the whole route to 0.18px while the
+  // camera was still at overview range — sub-pixel, so it barely rasterised
+  // and the path appeared to go dark. Holding the outgoing fat tubes up while
+  // the incoming thin ones rise gives a concentric blend that reads as the
+  // line narrowing, and costs one extra copy of the geometry for the flight.
+  // The outgoing copy only has to cover the moment of the swap, so this is
+  // deliberately much shorter than the 950ms flight. Its *apparent* width
+  // grows as 1/distance — 1.9px at departure but 20.6px on arrival — so if it
+  // is still fading when the camera gets close it shows up as a wide
+  // translucent halo round the thin new tube, which reads as the line
+  // widening near the end of the flight. Finishing inside 300ms retires it
+  // while it is still about 2px. The incoming tube covers the handover: the
+  // exaggeration tween stretches it vertically early on, so it is already
+  // ~0.8-1.0px wide from the first frame rather than the sub-pixel sliver its
+  // radius alone would suggest.
+  var GEO_CROSSFADE_MS = 300;
+  var retiredGroups = [];
+
+  // Which end of the flight the swap happens at depends on which way the
+  // radius is going. Zooming IN the incoming tube is too thin at first (the
+  // 1px line floor covers that) while the outgoing one balloons as the camera
+  // closes, so swap immediately. Zooming OUT it is the reverse: the incoming
+  // overview radius reads ~20px while the camera is still close, so hold the
+  // outgoing thin geometry — the line floor keeps it visible as it recedes —
+  // and swap near the end, by which point the camera is ~482,000 away and the
+  // overview radius reads its intended ~1.7px.
+  function swapDelayFor(oldRadius, newRadius){
+    return newRadius > oldRadius ? 650 : 0;
+  }
+
+  function retireGroup(group, bakedEx, fromOp, duration, delay){
+    var entry = { group: group, ex: bakedEx };
+    retiredGroups.push(entry);
+    fadeOpacity(group, fromOp, 0, duration, function(){
+      scene.remove(group);
+      group.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+      var i = retiredGroups.indexOf(entry);
+      if (i >= 0) retiredGroups.splice(i, 1);
+    }, delay);
+  }
+
+  // grids are single-material Object3Ds, so setGroupOpacity's traverse covers
+  // them and the same fade machinery works
+  function retireGrid(grid, duration){
+    fadeOpacity(grid, grid.material.opacity, 0, duration, function(){
+      scene.remove(grid);
+      grid.geometry.dispose();
+      grid.material.dispose();
+    });
+  }
+
+  function applyDisplayEx(ex){
+    displayEx = ex;
+    LEGS.forEach(function(leg){
+      var entry = legGroups[leg.id];
+      if (!entry) return;
+      entry.group.scale.y = ex / entry.ex;   // entry.ex = the ex baked into the mesh
+      updateColLabelWorldPositions(leg, ex);
+    });
+    // outgoing copies ride the same exaggeration so they stay superimposed on
+    // their replacements instead of drifting apart during the cross-fade
+    retiredGroups.forEach(function(r){ r.group.scale.y = ex / r.ex; });
+  }
+
+  function startExTween(toEx, duration){
+    if (Math.abs(displayEx - toEx) < 0.001){
+      applyDisplayEx(toEx);   // snaps scale.y back to exactly 1
+      exTween = null;
+      return;
+    }
+    exTween = { from: displayEx, to: toEx, t0: performance.now(), duration: duration || 950 };
+  }
+
   // the exaggeration-scaled box the camera is currently framing — kept so a
   // viewport change can refit exactly what's on screen, overview or one day
   var currentFramingBox = null;
 
   // initial camera position = overview framing
+  // reserve fraction the most recent frameBox() call was computed against —
+  // callers decide whether to apply it instantly or animate towards it
+  var lastFrameReserve = 0;
+
   function computeOverviewFrame(){
     var reserveFrac = hudBottomReserveFrac();
-    applyBottomReserve(reserveFrac);
+    lastFrameReserve = reserveFrac;
     currentFramingBox = {
       minx:OVERVIEW_BBOX.minx, maxx:OVERVIEW_BBOX.maxx,
       miny:OVERVIEW_BBOX.miny*OVERVIEW_EX, maxy:OVERVIEW_BBOX.maxy*OVERVIEW_EX,
@@ -449,6 +587,7 @@
     return frameBox(currentFramingBox, reserveFrac);
   }
   var overviewFrame = computeOverviewFrame();
+  applyBottomReserve(lastFrameReserve);
   camera.position.copy(overviewFrame.camPos);
   controls.target.copy(overviewFrame.center);
   controls.update();
@@ -499,6 +638,7 @@
   // now that the day pills actually exist, snapping straight there since
   // nothing has been rendered on screen yet to animate away from
   overviewFrame = computeOverviewFrame();
+  applyBottomReserve(lastFrameReserve);
   camera.position.copy(overviewFrame.camPos);
   controls.target.copy(overviewFrame.center);
   controls.update();
@@ -562,16 +702,14 @@
     // overview — where it was already fully coloured and should just stay
     // put. Coming from another focused day it was sitting dimmed at 0.22, so
     // this still runs the meaningful reveal.
-    var old = legGroups[id].group;
-    var prevOp = currentOpacity(old);
-    scene.remove(old);
-    old.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+    var swapDelay = swapDelayFor(legGroups[id].radius, radius);
+    retireGroup(legGroups[id].group, legGroups[id].ex, currentOpacity(legGroups[id].group), GEO_CROSSFADE_MS, swapDelay);
     var group = buildLegGroup(leg, ex, radius);
-    setGroupOpacity(group, prevOp);
+    setGroupOpacity(group, 0);
     scene.add(group);
     legGroups[id] = { group:group, ex:ex, radius:radius };
     updateColLabelWorldPositions(leg, ex);
-    fadeOpacity(group, prevOp, 1, 260);
+    fadeOpacity(group, 0, 1, GEO_CROSSFADE_MS, null, swapDelay);
 
     // dim other legs — rebuild them at the same exaggeration as the
     // focused leg so their altitude scale matches and routes still join
@@ -580,39 +718,45 @@
     LEGS.forEach(function(l){
       if (l.id === id) return;
       var prev = legGroups[l.id];
-      var curOp = currentOpacity(prev.group);
-      scene.remove(prev.group);
-      prev.group.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+      retireGroup(prev.group, prev.ex, currentOpacity(prev.group), GEO_CROSSFADE_MS, swapDelay);
       var og = buildLegGroup(l, ex, radius);
-      setGroupOpacity(og, curOp);
+      setGroupOpacity(og, 0);
       scene.add(og);
       legGroups[l.id] = { group:og, ex:ex, radius:radius };
       updateColLabelWorldPositions(l, ex);
-      fadeOpacity(og, curOp, 0.22, 500);
+      fadeOpacity(og, 0, 0.22, GEO_CROSSFADE_MS, null, swapDelay);
     });
 
-    // local grid
-    if (focusGrid){ scene.remove(focusGrid); focusGrid.geometry.dispose(); focusGrid.material.dispose(); }
+    // Local grid. The grid covers far more of the screen than the route does
+    // (~13,500px against ~1,200), so snapping the overview grid from 0.35 to
+    // 0.04 darkened most of the frame in a single step — the same
+    // snap-at-departure problem as the fog, exaggeration and tube radius.
+    // Cross-faded over the flight instead.
+    if (focusGrid) retireGrid(focusGrid, 950);
     focusGrid = makeGrid(Math.max(b.maxx-b.minx, b.maxz-b.minz)*1.5, 24, 0x46607c, 0x2c4055);
     focusGrid.position.set((b.minx+b.maxx)/2, 0, (b.minz+b.maxz)/2);
+    focusGrid.material.opacity = 0;
     scene.add(focusGrid);
-    overviewGrid.material.opacity = 0.04;
+    fadeOpacity(focusGrid, 0, 0.35, 950);
+    fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.04, 950);
 
     activeLegId = id;
     setActiveChip(id);
     showDetail(leg); // before framing, so its now-current content is measured for the HUD reserve
 
     var focusReserveFrac = hudBottomReserveFrac();
-    applyBottomReserve(focusReserveFrac);
+    startReserveTween(focusReserveFrac, 950);
     currentFramingBox = {
       minx:b.minx, maxx:b.maxx, minz:b.minz, maxz:b.maxz,
       miny:b.miny*ex, maxy:b.maxy*ex
     };
     var frame = frameBox(currentFramingBox, focusReserveFrac);
-    // fog density is not set here: it's calibrated to the camera's distance
-    // from its target, so it has to travel with the camera. animate() drives
-    // it for the duration of the fly-to and lands on this frame's value.
+    // Neither fog density nor the exaggeration is applied here. Both belong
+    // to the destination and have to travel with the camera instead of
+    // snapping at the start; animate() drives them over the same 950ms and
+    // lands on exactly this frame's values.
     flyTo(frame.camPos, frame.center, 950);
+    startExTween(ex, 950);
 
     exagNote.textContent = "elevation exaggerated ×" + Math.round(ex);
   }
@@ -622,23 +766,29 @@
     hideDetail(); // before re-measuring the HUD reserve, so its (stale, now-hidden) content doesn't count
     LEGS.forEach(function(leg){
       var cur = legGroups[leg.id];
+      // capture before the rebuild: afterwards legGroups[].radius is already
+      // OVERVIEW_RADIUS, and comparing it against itself yields no delay
+      var swapDelay = swapDelayFor(cur.radius, OVERVIEW_RADIUS);
       if (Math.abs(cur.ex - OVERVIEW_EX) > 0.01 || cur.radius !== OVERVIEW_RADIUS){
-        scene.remove(cur.group);
-        cur.group.traverse(function(o){ if(o.geometry) o.geometry.dispose(); if(o.material) o.material.dispose(); });
+        retireGroup(cur.group, cur.ex, currentOpacity(cur.group), GEO_CROSSFADE_MS, swapDelay);
         var group = buildLegGroup(leg, OVERVIEW_EX, OVERVIEW_RADIUS);
+        setGroupOpacity(group, 0);
         scene.add(group);
         legGroups[leg.id] = { group:group, ex:OVERVIEW_EX, radius:OVERVIEW_RADIUS };
         updateColLabelWorldPositions(leg, OVERVIEW_EX);
       }
-      fadeOpacity(legGroups[leg.id].group, currentOpacity(legGroups[leg.id].group), 1, 500);
+      fadeOpacity(legGroups[leg.id].group, currentOpacity(legGroups[leg.id].group), 1, GEO_CROSSFADE_MS,
+        null, swapDelay);
     });
-    if (focusGrid){ scene.remove(focusGrid); focusGrid.geometry.dispose(); focusGrid.material.dispose(); focusGrid=null; }
-    overviewGrid.material.opacity = 0.35;
+    if (focusGrid){ retireGrid(focusGrid, 950); focusGrid = null; }
+    fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.35, 950);
 
     overviewFrame = computeOverviewFrame();
-    // same as focusLeg: animate() carries the fog out with the camera rather
-    // than snapping to the overview density while it's still zoomed in
+    startReserveTween(lastFrameReserve, 950);
+    // same as focusLeg: animate() carries the fog and the exaggeration out
+    // with the camera rather than snapping them while it's still zoomed in
     flyTo(overviewFrame.camPos, overviewFrame.center, 950);
+    startExTween(OVERVIEW_EX, 950);
     activeLegId = null;
     setActiveChip(null);
     exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);
@@ -651,9 +801,12 @@
   }
 
   var fadeTweens = [];
-  function fadeOpacity(group, from, to, duration){
+  // `delay` simply pushes t0 into the future — animate() clamps negative
+  // progress to 0, so the group just holds `from` until the delay elapses
+  function fadeOpacity(group, from, to, duration, onDone, delay){
     fadeTweens = fadeTweens.filter(function(f){ return f.group !== group; });
-    fadeTweens.push({ group:group, from:from, to:to, t0:performance.now(), duration:duration });
+    fadeTweens.push({ group:group, from:from, to:to,
+      t0:performance.now() + (delay||0), duration:duration, onDone:onDone });
   }
 
   // ---- animation loop --------------------------------------------------------
@@ -683,11 +836,27 @@
       scene.fog.density = fogDensityForCamDist(camera.position.distanceTo(controls.target));
     }
 
+    if (reserveTween){
+      var rt = clamp((now - reserveTween.t0) / reserveTween.duration, 0, 1);
+      applyBottomReserve(reserveTween.from + (reserveTween.to - reserveTween.from) * easeInOutCubic(rt));
+      if (rt >= 1) reserveTween = null;
+    }
+
+    if (exTween){
+      var et = clamp((now - exTween.t0) / exTween.duration, 0, 1);
+      applyDisplayEx(exTween.from + (exTween.to - exTween.from) * easeInOutCubic(et));
+      if (et >= 1){
+        applyDisplayEx(exTween.to);   // land exactly, so scale.y is exactly 1
+        exTween = null;
+      }
+    }
+
     if (fadeTweens.length){
       fadeTweens = fadeTweens.filter(function(f){
         var t = clamp((now - f.t0) / f.duration, 0, 1);
         var op = f.from + (f.to - f.from) * t;
         setGroupOpacity(f.group, op);
+        if (t >= 1 && f.onDone) f.onDone();   // retired geometry disposes here
         return t < 1;
       });
     }
@@ -837,7 +1006,9 @@
       }
 
       // project this leg's path to screen space, for label/path collision checks
-      var renderEx = legGroups[leg.id].ex;
+      // displayEx, not the leg's baked ex: mid-transition the mesh is being
+      // carried by scale.y, so the baked value isn't where the route is drawn
+      var renderEx = displayEx;
       var pathScreen = leg.pts.map(function(p){
         if (p === null) return null;
         var sp = projectToScreen(new THREE.Vector3(p[0], p[1]*renderEx, p[2]), halfW, halfH);
@@ -952,6 +1123,7 @@
 
     var reserve = hudBottomReserveFrac();
     applyBottomReserve(reserve);
+    reserveTween = null;
 
     // Only inherit the current orbit direction when it came from a framing
     // done at a real viewport size — after a zero-sized load it's the
