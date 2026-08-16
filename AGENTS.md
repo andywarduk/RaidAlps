@@ -142,6 +142,20 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   route dataset. See README for provenance; don't hand-edit this,
   regenerate it with `tools/rebuild_from_strava.py` if it ever needs to
   change.
+- `src/data/hotels.geojson` + `src/data/hotel-data.js`: the eight overnight
+  stops. The **`.geojson` is the editable one** (plain WGS84 lon/lat/
+  elevation); the `.js` is generated from it by
+  `tools/build_hotel_data.py`, which pre-projects each hotel into the
+  scene's metre grid so `app.js` contains no geodesy. Edit the geojson,
+  re-run that script, then `./build.sh` — which refuses to build if the
+  two have drifted apart. Two files exist only because the Artifact
+  bundle is a single file under a CSP and so can't `fetch()` a
+  `.geojson`; every dataset here has to arrive as a script assigning a
+  global.
+  The projection origin is *fitted*, not stored — see that script's
+  docstring. It re-derives and re-checks the fit on every run, so if
+  `route-data.js` is ever rebuilt against a different centroid the
+  script fails loudly rather than silently misplacing all nine markers.
 - `src/app.js`: one big IIFE (`(function(){ "use strict"; ... })()`).
   Inside it, in roughly this order: `LEGS` setup and leg-merging, viewport
   helpers (`vpW`, `vpH`, `vpValid` — always read the viewport through
@@ -153,6 +167,24 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   `updateColLabelScreenPositions`), HUD wiring (stat rail, chip rail,
   detail card), focus/overview transitions (`focusLeg`, `goOverview`), the
   `animate()` render loop, and `onViewportChange()` at the end.
+
+  Cols and hotels share one label implementation: `makeLabel()` builds
+  both, and `placeLabel()` runs the collision search for both, so a hotel
+  label can never be placed on top of a col label. Hotels are
+  deliberately label-only — no 3D mesh. The leader line's anchor dot
+  already marks the exact position, and a mesh would have to be rescaled
+  through every exaggeration tween and camera flight just to stay the
+  right size on screen. If you find yourself adding one, that plumbing is
+  what you're signing up for.
+  Two behaviours differ from the cols. First, which hotels show: all nine
+  in the overview, but with a day focused only the night before the ride
+  and the night at the end of it — matched by date (a leg's `date` is the
+  day it was *ridden*, a hotel's is the night slept there, so it's the
+  leg's date and the day before), not by proximity to the leg's endpoints,
+  because night 2 has two hotels. Second, a hotel whose anchor is
+  off-screen is hidden outright rather than clamped to the edge the way
+  `placeLabel()` would otherwise leave it, so nothing stacks up along an
+  edge trailing a leader line that points at nothing.
 
 ## The render loop draws on demand, not every frame
 

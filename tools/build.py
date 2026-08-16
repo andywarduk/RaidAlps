@@ -68,13 +68,40 @@ def strip_wrapper(html):
     return html
 
 
+def check_hotel_data_fresh(hotel_js):
+    """src/data/hotel-data.js is generated from src/data/hotels.geojson, and
+    the .geojson is the editable one — so an edit there that was never
+    regenerated would otherwise ship silently as stale hotel positions. Two
+    files, one truth: compare them here rather than trusting whoever edited
+    the geojson to remember the extra step."""
+    import json
+
+    generated = json.loads(hotel_js[hotel_js.index("{"):].rstrip().rstrip(";"))
+    by_name = {h["name"]: h for h in generated["hotels"]}
+    features = json.loads(read("data/hotels.geojson"))["features"]
+
+    stale = [f["properties"]["name"] for f in features
+             if f["properties"]["name"] not in by_name
+             or abs(by_name[f["properties"]["name"]]["pt"][1] - f["geometry"]["coordinates"][2]) > 0.05
+             or by_name[f["properties"]["name"]]["date"] != f["properties"]["date"]]
+    if stale or len(features) != len(generated["hotels"]):
+        raise SystemExit(
+            "src/data/hotel-data.js is out of date with src/data/hotels.geojson "
+            f"({', '.join(stale) or 'hotel count differs'}) — "
+            "run: python3 tools/build_hotel_data.py"
+        )
+
+
 def main():
     skeleton = strip_wrapper(read("index.html"))
     css = inline_fonts(read("style.css"))
     three_js = read("vendor/three.min.js").rstrip("\n")
     orbit_js = read("vendor/OrbitControls.js").rstrip("\n")
     route_js = read("data/route-data.js").rstrip("\n")
+    hotel_js = read("data/hotel-data.js").rstrip("\n")
     app_js = read("app.js").rstrip("\n")
+
+    check_hotel_data_fresh(hotel_js)
 
     replacements = [
         # src/favicon.svg is a real file, served as such by GitHub Pages and
@@ -92,6 +119,7 @@ def main():
         ('<script src="vendor/three.min.js"></script>', f"<script>\n{three_js}\n</script>"),
         ('<script src="vendor/OrbitControls.js"></script>', f"<script>\n{orbit_js}\n</script>"),
         ('<script src="data/route-data.js"></script>', f"<script>{route_js}</script>"),
+        ('<script src="data/hotel-data.js"></script>', f"<script>{hotel_js}</script>"),
         ('<script src="app.js"></script>', f"<script>\n{app_js}\n</script>"),
     ]
 

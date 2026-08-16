@@ -328,52 +328,80 @@
   var colLabels = {}; // legId -> [{ el, worldPos }]
   var tapActiveLabel = null; // touch has no hover, so tapping a label toggles its elevation instead
 
+  // One label + leader line + anchor dot, in the shape the placement pass in
+  // updateColLabelScreenPositions() expects. Shared by the cols and by the
+  // hotels below rather than duplicated: identical DOM means both kinds go
+  // through the same measurement, the same tap-to-reveal, and the same
+  // collision-avoidance search, so a hotel label can never be placed on top
+  // of a col label (or vice versa).
+  function makeLabel(opts){
+    var el = document.createElement("div");
+    el.className = "col-label" + (opts.className ? " " + opts.className : "");
+    if (opts.color) el.style.setProperty("--label-color", opts.color);
+    if (opts.icon) el.insertAdjacentHTML("beforeend", opts.icon);
+
+    var nameEl = document.createElement("span");
+    nameEl.textContent = opts.name;
+    el.appendChild(nameEl);
+
+    // revealed on hover — expands the label rather than opening a
+    // separate tooltip, so it still tracks the same collision-avoidance
+    // box every other label uses
+    var altEl = document.createElement("span");
+    altEl.className = "col-label-alt";
+    altEl.textContent = opts.detail;
+    el.appendChild(altEl);
+
+    // touch has no :hover, so tapping the label toggles the same reveal
+    el.addEventListener("click", function(){
+      if (tapActiveLabel === el){
+        el.classList.remove("tap-active");
+        tapActiveLabel = null;
+      } else {
+        if (tapActiveLabel) tapActiveLabel.classList.remove("tap-active");
+        el.classList.add("tap-active");
+        tapActiveLabel = el;
+      }
+    });
+
+    colLabelsRoot.appendChild(el);
+    var rect = el.getBoundingClientRect();
+
+    var line = document.createElementNS(SVGNS, "line");
+    if (opts.svgClass) line.setAttribute("class", opts.svgClass);
+    leaderSvg.appendChild(line);
+    var dot = document.createElementNS(SVGNS, "circle");
+    dot.setAttribute("r", "2.5");
+    if (opts.svgClass) dot.setAttribute("class", opts.svgClass);
+    if (opts.color) dot.style.setProperty("--label-color", opts.color);
+    leaderSvg.appendChild(dot);
+
+    return {
+      el:el, line:line, dot:dot, pt:opts.pt, worldPos:new THREE.Vector3(),
+      w:rect.width, h:rect.height,
+      cx:0, cy:0, ax:0, ay:0, visible:false // filled in each frame
+    };
+  }
+
+  // hiding is three elements plus the tap-reveal bookkeeping, and there are
+  // four places that need it — keep them from drifting apart
+  function hideLabel(l){
+    if (l.el.style.opacity === "0") return;
+    l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
+    l.el.style.pointerEvents = "none";
+    l.el.classList.remove("tap-active");
+    if (tapActiveLabel === l.el) tapActiveLabel = null;
+  }
+
   function createColLabelEls(leg){
     colLabels[leg.id] = leg.colMarkers.map(function(marker){
-      var el = document.createElement("div");
-      el.className = "col-label";
-      el.style.setProperty("--label-color", leg.color);
-
-      var nameEl = document.createElement("span");
-      nameEl.textContent = marker.name;
-      el.appendChild(nameEl);
-
-      // revealed on hover — expands the label rather than opening a
-      // separate tooltip, so it still tracks the same collision-avoidance
-      // box every other label uses
-      var altEl = document.createElement("span");
-      altEl.className = "col-label-alt";
       var altFt = Math.round(marker.pt[1] * 3.28084);
-      altEl.textContent = fmt(altFt) + " ft · " + fmt(Math.round(marker.pt[1])) + " m";
-      el.appendChild(altEl);
-
-      // touch has no :hover, so tapping the label toggles the same reveal
-      el.addEventListener("click", function(){
-        if (tapActiveLabel === el){
-          el.classList.remove("tap-active");
-          tapActiveLabel = null;
-        } else {
-          if (tapActiveLabel) tapActiveLabel.classList.remove("tap-active");
-          el.classList.add("tap-active");
-          tapActiveLabel = el;
-        }
+      return makeLabel({
+        name: marker.name,
+        detail: fmt(altFt) + " ft · " + fmt(Math.round(marker.pt[1])) + " m",
+        color: leg.color,
+        pt: marker.pt
       });
-
-      colLabelsRoot.appendChild(el);
-      var rect = el.getBoundingClientRect();
-
-      var line = document.createElementNS(SVGNS, "line");
-      leaderSvg.appendChild(line);
-      var dot = document.createElementNS(SVGNS, "circle");
-      dot.setAttribute("r", "2.5");
-      dot.style.setProperty("--label-color", leg.color);
-      leaderSvg.appendChild(dot);
-
-      return {
-        el:el, line:line, dot:dot, pt:marker.pt, worldPos:new THREE.Vector3(),
-        w:rect.width, h:rect.height,
-        cx:0, cy:0, ax:0, ay:0, visible:false // filled in each frame
-      };
     });
   }
 
@@ -390,6 +418,98 @@
     createColLabelEls(leg);
     updateColLabelWorldPositions(leg, OVERVIEW_EX);
   });
+
+  // ---- hotels --------------------------------------------------------------
+  // The eight overnight stops (nine hotels — night 2 is split between La
+  // Giettaz and Flumet), off by default and revealed by the toggle in the
+  // top-right. They are label-only: no 3D mesh, because the leader line's
+  // anchor dot already marks the exact projected position, and a mesh would
+  // have to be re-scaled through every exaggeration tween and camera flight
+  // to stay the right size on screen — plumbing that buys nothing visible.
+  //
+  // Positions come pre-projected into this scene's metre grid by
+  // tools/build_hotel_data.py (see that script for where the projection
+  // origin came from), so they need no conversion here, just the same
+  // altitude exaggeration everything else gets.
+  var HOTELS = (window.HOTEL_DATA && window.HOTEL_DATA.hotels) || [];
+  var hotelsVisible = false;   // owned by the toggle button wired up at the end
+  var HOTEL_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+    'stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round">' +
+    '<path d="M3 19V6"/><path d="M3 11.5h18V19"/><path d="M7 8.5h3"/></svg>';
+  var MONTHS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+
+  function shortDate(iso){
+    var p = iso.split("-");
+    return Number(p[2]) + " " + MONTHS[Number(p[1]) - 1];
+  }
+
+  function dayBefore(iso){
+    var d = new Date(iso + "T00:00:00Z");
+    d.setUTCDate(d.getUTCDate() - 1);
+    return d.toISOString().slice(0, 10);
+  }
+
+  var hotelLabels = HOTELS.map(function(h){
+    var l = makeLabel({
+      name: h.name,
+      detail: h.town + " · " + shortDate(h.date) + " · " + fmt(Math.round(h.pt[1])) + " m",
+      className: "hotel-label",
+      svgClass: "hotel-marker",
+      icon: HOTEL_ICON,
+      pt: h.pt
+    });
+    // the night slept there, which is what decides whether it belongs to a
+    // focused day — see the placement pass
+    l.date = h.date;
+    return l;
+  });
+
+  function updateHotelLabelWorldPositions(ex){
+    hotelLabels.forEach(function(l){
+      l.worldPos.set(l.pt[0], l.pt[1]*ex, l.pt[2]);
+    });
+  }
+  updateHotelLabelWorldPositions(OVERVIEW_EX);
+
+  // ---- compass labels ------------------------------------------------------
+  // Anchored to the overview grid's fixed extent/center rather than whatever
+  // grid is currently on screen — the overview grid is always present (just
+  // dimmed to 0.04 while a day is focused, see focusLeg()/goOverview()), so
+  // this stays a stable regional reference instead of jumping around on
+  // every focus/overview transition. See README's route-data section: +x is
+  // east and +z is north (a plain lon/lat equirectangular projection), so
+  // this is directionally correct but not survey-grade over the full extent.
+  var compassLabelsRoot = document.getElementById("compass-labels");
+  // half the route's own bounding extent, not the padded grid size — frameBox()
+  // already guarantees the route bbox itself fits on screen at the overview
+  // framing, so this radius reliably stays in view in every direction too
+  var COMPASS_RADIUS = Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) / 2;
+  var compassPoints = [
+    { label:"N", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz + COMPASS_RADIUS) },
+    { label:"E", el:null, worldPos:new THREE.Vector3(overviewGridCx + COMPASS_RADIUS, 0, overviewGridCz) },
+    { label:"S", el:null, worldPos:new THREE.Vector3(overviewGridCx, 0, overviewGridCz - COMPASS_RADIUS) },
+    { label:"W", el:null, worldPos:new THREE.Vector3(overviewGridCx - COMPASS_RADIUS, 0, overviewGridCz) }
+  ];
+  compassPoints.forEach(function(p){
+    var el = document.createElement("div");
+    el.className = "compass-label";
+    el.textContent = p.label;
+    compassLabelsRoot.appendChild(el);
+    p.el = el;
+  });
+
+  function updateCompassLabelScreenPositions(){
+    var halfW = vpW()/2, halfH = vpH()/2;
+    compassPoints.forEach(function(p){
+      var sp = projectToScreen(p.worldPos, halfW, halfH);
+      if (sp.behind || sp.x < -40 || sp.x > halfW*2+40 || sp.y < -40 || sp.y > halfH*2+40){
+        p.el.style.opacity = 0;
+        return;
+      }
+      p.el.style.transform = "translate(-50%,-50%) translate(" + sp.x.toFixed(1) + "px," + sp.y.toFixed(1) + "px)";
+      p.el.style.opacity = 1;
+    });
+  }
 
   // NB: the label sizes cached by createColLabelEls() are measured before the
   // custom webfont has swapped in and so are too narrow. There used to be a
@@ -605,6 +725,7 @@
     // outgoing copies ride the same exaggeration so they stay superimposed on
     // their replacements instead of drifting apart during the cross-fade
     retiredGroups.forEach(function(r){ r.group.scale.y = ex / r.ex; });
+    updateHotelLabelWorldPositions(ex);
   }
 
   function startExTween(toEx, duration){
@@ -988,6 +1109,7 @@
     // a frame behind the actual 3D balls while dragging.
     camera.updateMatrixWorld();
     updateColLabelScreenPositions();
+    updateCompassLabelScreenPositions();
     renderer.render(scene, camera);
 
     lastDrawnPos.copy(camera.position);
@@ -1090,6 +1212,8 @@
   function updateColLabelScreenPositions(){
     var halfW = vpW()/2, halfH = vpH()/2;
     var hudBoxes = getHudObstacleBoxes();
+    var colBoxesThisFrame = [], colLinesThisFrame = [];
+    hotelPathFrame++;   // invalidates hotelPathScreen()'s one-frame cache
 
     // in the overview (no day focused), hovering a col's marker labels
     // just that one col, instead of the usual "labels only for the
@@ -1117,14 +1241,7 @@
       var hoverIdx = (!isActive && hoveredMarker && hoveredMarker.legId === leg.id) ? hoveredMarker.idx : -1;
 
       if (groupOpacity <= 0.02 && hoverIdx < 0){
-        labels.forEach(function(l){
-          if (l.el.style.opacity !== "0"){
-            l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
-            l.el.style.pointerEvents = "none";
-            l.el.classList.remove("tap-active");
-            if (tapActiveLabel === l.el) tapActiveLabel = null;
-          }
-        });
+        labels.forEach(hideLabel);
         return;
       }
 
@@ -1142,88 +1259,163 @@
       var placedLines = [];
       labels.forEach(function(l, labelIdx){
         if (!isActive && labelIdx !== hoverIdx){
-          if (l.el.style.opacity !== "0"){
-            l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
-            l.el.style.pointerEvents = "none";
-            l.el.classList.remove("tap-active");
-            if (tapActiveLabel === l.el) tapActiveLabel = null;
-          }
+          hideLabel(l);
           return;
         }
         var labelOpacity = isActive ? groupOpacity : 1;
-        var sp = projectToScreen(l.worldPos, halfW, halfH);
-        if (sp.behind){
-          l.el.style.opacity = 0; l.line.style.opacity = 0; l.dot.style.opacity = 0;
-          l.el.style.pointerEvents = "none";
-          l.el.classList.remove("tap-active");
-          if (tapActiveLabel === l.el) tapActiveLabel = null;
-          return;
-        }
-        l.ax = sp.x; l.ay = sp.y;
-        l.el.style.pointerEvents = "auto";
-
-        // re-measure live rather than trust the size cached at creation —
-        // sandboxed frames don't reliably signal when the custom webfont
-        // has swapped in, and a stale (too-narrow) box lets labels overlap.
-        // Safe to do unconditionally: the hover-revealed elevation text is
-        // position:absolute (see .col-label-alt), so it's never part of
-        // this element's own layout box and can't perturb this measurement.
-        var liveRect = l.el.getBoundingClientRect();
-        if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
-
-        var hw = l.w/2 + LABEL_PAD, hh = l.h/2 + LABEL_PAD;
-        var vw = halfW*2, vh = halfH*2;
-
-        // Score every candidate ring position and keep the best, rather
-        // than a fixed pass order that can exhaust its search (dense
-        // clusters) and fall through to a completely unchecked placement.
-        // A box overlapping another box/line, or a line piercing a box,
-        // makes text unreadable — heavily penalized. A crossed line or a
-        // line grazing the path is only cosmetic — penalized lightly so
-        // it's still preferred over the unreadable cases, but yields to a
-        // perfect (score 0) spot if one exists.
-        var chosen = null, bestScore = Infinity;
-        for (var c=0; c<LABEL_CANDIDATES.length && bestScore>0; c++){
-          var cx = l.ax + LABEL_CANDIDATES[c][0], cy = l.ay + LABEL_CANDIDATES[c][1];
-          var box = { cx:cx, cy:cy, hw:hw, hh:hh };
-          if (!boxInViewport(box, vw, vh, 4)) continue;
-          // scoring-only: the leader line actually drawn is recomputed below
-          // against the label's real size, not this padded collision box
-          var candEdge = boxEdgeToward(cx,cy,hw,hh,l.ax,l.ay);
-          var score = 0;
-          if (placedBoxes.some(function(b){ return boxesOverlap(box,b,4); })) score += 1000;
-          if (placedLines.some(function(ln){ return boxOverlapsSegment(box, ln.x1,ln.y1,ln.x2,ln.y2, PATH_CLEARANCE); })) score += 1000;
-          if (placedBoxes.some(function(b){ return boxOverlapsSegment(b, l.ax,l.ay,candEdge[0],candEdge[1], PATH_CLEARANCE); })) score += 1000;
-          if (placedLines.some(function(ln){ return segmentsIntersect(l.ax,l.ay,candEdge[0],candEdge[1], ln.x1,ln.y1,ln.x2,ln.y2); })) score += 10;
-          if (boxOverlapsPath(box, pathScreen, PATH_CLEARANCE)) score += 1;
-          if (score < bestScore){ bestScore = score; chosen = box; }
-        }
-        if (!chosen){
-          var fx = LABEL_CANDIDATES[0];
-          chosen = { cx:l.ax+fx[0], cy:l.ay+fx[1], hw:hw, hh:hh };
-        }
-        // last-resort safety net: never let a label render partly off-screen
-        chosen.cx = Math.min(Math.max(chosen.cx, hw+4), vw-hw-4);
-        chosen.cy = Math.min(Math.max(chosen.cy, hh+4), vh-hh-4);
-        placedBoxes.push(chosen);
-        l.cx = chosen.cx; l.cy = chosen.cy;
-
-        l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
-        l.el.style.opacity = labelOpacity;
-
-        // the scoring pass worked against the padded collision box
-        // (LABEL_PAD bigger than the label so neighbors keep a margin) —
-        // recompute against the label's actual rendered size so the line
-        // reaches its edge exactly
-        var edge = boxEdgeToward(chosen.cx, chosen.cy, l.w/2, l.h/2, l.ax, l.ay);
-        l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
-        l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
-        l.line.style.opacity = labelOpacity;
-        l.dot.setAttribute("cx", l.ax); l.dot.setAttribute("cy", l.ay);
-        l.dot.style.opacity = labelOpacity;
-        placedLines.push({ x1:l.ax, y1:l.ay, x2:edge[0], y2:edge[1] });
+        if (!placeLabel(l, labelOpacity, placedBoxes, placedLines, pathScreen, halfW, halfH)) return;
+        // hotels are placed after every leg, against the boxes and leader
+        // lines the cols actually ended up using this frame, so they never
+        // land on top of a visible col label
+        colBoxesThisFrame.push({ cx:l.cx, cy:l.cy, hw:l.w/2+LABEL_PAD, hh:l.h/2+LABEL_PAD });
+        colLinesThisFrame.push({ x1:l.ax, y1:l.ay, x2:l.lx2, y2:l.ly2 });
       });
     });
+
+    // Hotel labels. In the overview, all of them. With a day focused, just
+    // the two nights that day's ride runs between: the one slept in before
+    // setting off, and the one at the end of it. A leg's `date` is the day
+    // it was ridden and a hotel's is the night slept there, so those are
+    // the leg's own date and the day before it. Night 2 has two hotels
+    // (La Giettaz and Flumet), which is why this matches on date rather
+    // than picking one hotel per end of the leg.
+    if (!hotelsVisible){
+      hotelLabels.forEach(hideLabel);
+    } else {
+      var nights = null;
+      if (activeLegId !== null){
+        var activeLeg = LEGS.filter(function(l){ return l.id === activeLegId; })[0];
+        nights = {};
+        nights[activeLeg.date] = 1;
+        nights[dayBefore(activeLeg.date)] = 1;
+      }
+      var hotelBoxes = hudBoxes.concat(colBoxesThisFrame);
+      var hotelLines = colLinesThisFrame.slice();
+      var vw = halfW*2, vh = halfH*2;
+      hotelLabels.forEach(function(l){
+        if (nights && !nights[l.date]){
+          hideLabel(l);
+          return;
+        }
+        // Drop the ones whose anchor isn't on screen. placeLabel's last-resort
+        // clamp keeps a label wholly inside the viewport, which is right when
+        // its anchor is visible too — but a hotel's isn't necessarily. Focus a
+        // day and the four or five stops outside that day's framing would
+        // otherwise pile up along whichever edge they went off, each trailing
+        // a leader line pointing at nothing.
+        var sp = projectToScreen(l.worldPos, halfW, halfH);
+        if (sp.behind || sp.x < 0 || sp.x > vw || sp.y < 0 || sp.y > vh){
+          hideLabel(l);
+          return;
+        }
+        placeLabel(l, 1, hotelBoxes, hotelLines, hotelPathScreen(halfW, halfH), halfW, halfH);
+      });
+    }
+  }
+
+  // Every leg's path, projected and decimated, for the hotel labels' path
+  // collision check. The per-leg pass above only ever projects the one leg
+  // it is placing labels for, but a hotel sits on the route by definition
+  // and can be next to any day's line, so this covers all seven. Computed
+  // once per frame, and only when hotels are actually on screen. The stride
+  // is what keeps that affordable: at overview framing the whole route is
+  // ~1,200px long, so consecutive kept points are well under a pixel apart
+  // and nothing a 7px clearance test would catch is missed.
+  var HOTEL_PATH_STRIDE = 3;
+  var hotelPathCache = { frame:-1, pts:null };
+  var hotelPathFrame = 0;
+
+  function hotelPathScreen(halfW, halfH){
+    if (hotelPathCache.frame === hotelPathFrame) return hotelPathCache.pts;
+    var out = [];
+    LEGS.forEach(function(leg){
+      for (var i=0; i<leg.pts.length; i+=HOTEL_PATH_STRIDE){
+        var p = leg.pts[i];
+        if (p === null){ out.push(null); continue; }
+        var sp = projectToScreen(new THREE.Vector3(p[0], p[1]*displayEx, p[2]), halfW, halfH);
+        out.push(sp.behind ? null : [sp.x, sp.y]);
+      }
+      out.push(null); // don't let one leg's last point join to the next leg's first
+    });
+    hotelPathCache = { frame:hotelPathFrame, pts:out };
+    return out;
+  }
+
+  // Places one label at the best free spot around its anchor, or hides it if
+  // the anchor is behind the camera. Returns whether it ended up on screen.
+  // `placedBoxes`/`placedLines` accumulate as it goes, so each call also
+  // constrains the ones after it.
+  function placeLabel(l, labelOpacity, placedBoxes, placedLines, pathScreen, halfW, halfH){
+    var sp = projectToScreen(l.worldPos, halfW, halfH);
+    if (sp.behind){
+      hideLabel(l);
+      return false;
+    }
+    l.ax = sp.x; l.ay = sp.y;
+    l.el.style.pointerEvents = "auto";
+
+    // re-measure live rather than trust the size cached at creation —
+    // sandboxed frames don't reliably signal when the custom webfont
+    // has swapped in, and a stale (too-narrow) box lets labels overlap.
+    // Safe to do unconditionally: the hover-revealed elevation text is
+    // position:absolute (see .col-label-alt), so it's never part of
+    // this element's own layout box and can't perturb this measurement.
+    var liveRect = l.el.getBoundingClientRect();
+    if (liveRect.width > 0) { l.w = liveRect.width; l.h = liveRect.height; }
+
+    var hw = l.w/2 + LABEL_PAD, hh = l.h/2 + LABEL_PAD;
+    var vw = halfW*2, vh = halfH*2;
+
+    // Score every candidate ring position and keep the best, rather
+    // than a fixed pass order that can exhaust its search (dense
+    // clusters) and fall through to a completely unchecked placement.
+    // A box overlapping another box/line, or a line piercing a box,
+    // makes text unreadable — heavily penalized. A crossed line or a
+    // line grazing the path is only cosmetic — penalized lightly so
+    // it's still preferred over the unreadable cases, but yields to a
+    // perfect (score 0) spot if one exists.
+    var chosen = null, bestScore = Infinity;
+    for (var c=0; c<LABEL_CANDIDATES.length && bestScore>0; c++){
+      var cx = l.ax + LABEL_CANDIDATES[c][0], cy = l.ay + LABEL_CANDIDATES[c][1];
+      var box = { cx:cx, cy:cy, hw:hw, hh:hh };
+      if (!boxInViewport(box, vw, vh, 4)) continue;
+      // scoring-only: the leader line actually drawn is recomputed below
+      // against the label's real size, not this padded collision box
+      var candEdge = boxEdgeToward(cx,cy,hw,hh,l.ax,l.ay);
+      var score = 0;
+      if (placedBoxes.some(function(b){ return boxesOverlap(box,b,4); })) score += 1000;
+      if (placedLines.some(function(ln){ return boxOverlapsSegment(box, ln.x1,ln.y1,ln.x2,ln.y2, PATH_CLEARANCE); })) score += 1000;
+      if (placedBoxes.some(function(b){ return boxOverlapsSegment(b, l.ax,l.ay,candEdge[0],candEdge[1], PATH_CLEARANCE); })) score += 1000;
+      if (placedLines.some(function(ln){ return segmentsIntersect(l.ax,l.ay,candEdge[0],candEdge[1], ln.x1,ln.y1,ln.x2,ln.y2); })) score += 10;
+      if (boxOverlapsPath(box, pathScreen, PATH_CLEARANCE)) score += 1;
+      if (score < bestScore){ bestScore = score; chosen = box; }
+    }
+    if (!chosen){
+      var fx = LABEL_CANDIDATES[0];
+      chosen = { cx:l.ax+fx[0], cy:l.ay+fx[1], hw:hw, hh:hh };
+    }
+    // last-resort safety net: never let a label render partly off-screen
+    chosen.cx = Math.min(Math.max(chosen.cx, hw+4), vw-hw-4);
+    chosen.cy = Math.min(Math.max(chosen.cy, hh+4), vh-hh-4);
+    placedBoxes.push(chosen);
+    l.cx = chosen.cx; l.cy = chosen.cy;
+
+    l.el.style.transform = "translate(-50%,-50%) translate(" + chosen.cx.toFixed(1) + "px," + chosen.cy.toFixed(1) + "px)";
+    l.el.style.opacity = labelOpacity;
+
+    // the scoring pass worked against the padded collision box
+    // (LABEL_PAD bigger than the label so neighbors keep a margin) —
+    // recompute against the label's actual rendered size so the line
+    // reaches its edge exactly
+    var edge = boxEdgeToward(chosen.cx, chosen.cy, l.w/2, l.h/2, l.ax, l.ay);
+    l.line.setAttribute("x1", l.ax); l.line.setAttribute("y1", l.ay);
+    l.line.setAttribute("x2", edge[0]); l.line.setAttribute("y2", edge[1]);
+    l.line.style.opacity = labelOpacity;
+    l.dot.setAttribute("cx", l.ax); l.dot.setAttribute("cy", l.ay);
+    l.dot.style.opacity = labelOpacity;
+    placedLines.push({ x1:l.ax, y1:l.ay, x2:edge[0], y2:edge[1] });
+    l.lx2 = edge[0]; l.ly2 = edge[1];
+    return true;
   }
 
   // ---- resize ----------------------------------------------------------------
@@ -1335,6 +1527,42 @@
       if (!storedTheme()) applyThemeToScene();
     });
   }
+
+  // ---- hotel toggle --------------------------------------------------------
+  // Off by default: the hotels are supporting detail, and nine extra labels
+  // on the overview would compete with the route itself for a first-time
+  // viewer. The choice is remembered the same way the theme is, so someone
+  // who wants them keeps them across reloads.
+  var HOTELS_KEY = "raidalps-hotels";
+  var hotelToggle = document.getElementById("hotel-toggle");
+
+  function setHotelsVisible(on){
+    hotelsVisible = !!on && HOTELS.length > 0;
+    if (hotelToggle){
+      hotelToggle.setAttribute("aria-pressed", hotelsVisible ? "true" : "false");
+      var label = (hotelsVisible ? "Hide" : "Show") + " hotels";
+      hotelToggle.setAttribute("aria-label", label);
+      hotelToggle.title = label;
+    }
+    requestRender();
+  }
+
+  if (hotelToggle){
+    hotelToggle.innerHTML = HOTEL_ICON;
+    // nothing to toggle if the data script failed to load — don't leave a
+    // dead button on the HUD
+    if (!HOTELS.length){
+      hotelToggle.style.display = "none";
+    } else {
+      hotelToggle.addEventListener("click", function(){
+        setHotelsVisible(!hotelsVisible);
+        try { localStorage.setItem(HOTELS_KEY, hotelsVisible ? "1" : "0"); } catch(e){}
+      });
+    }
+  }
+  var storedHotels = null;
+  try { storedHotels = localStorage.getItem(HOTELS_KEY); } catch(e){}
+  setHotelsVisible(storedHotels === "1");
 
   // ---- init note ---------------------------------------------------------
   exagNote.textContent = "elevation exaggerated ×" + Math.round(OVERVIEW_EX);

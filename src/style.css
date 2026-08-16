@@ -17,6 +17,9 @@
   --day-5:#d55181;
   --day-6:#008300;
   --day-7:#9085e9;
+  /* hotels are not one of the seven days, so they get a hue no day uses —
+     cyan is the one gap in the palette above */
+  --hotel:#3fc9dd;
 }
 
 /* light palette: applies automatically when the OS is in light mode (unless
@@ -35,6 +38,7 @@
     --text-muted:#8494a3;
     --overlay-weak:rgba(0,0,0,0.05);
     --overlay-strong:rgba(0,0,0,0.08);
+    --hotel:#0d7f92;
   }
 }
 :root[data-theme="light"]{
@@ -48,6 +52,7 @@
   --text-muted:#8494a3;
   --overlay-weak:rgba(0,0,0,0.05);
   --overlay-strong:rgba(0,0,0,0.08);
+  --hotel:#0d7f92;
   color-scheme:light;
 }
 :root[data-theme="dark"]{
@@ -123,8 +128,13 @@ html,body{
   gap:8px;
 }
 
-.theme-toggle{
+.icon-btn-row{
   align-self:flex-end;
+  display:flex;
+  align-items:center;
+  gap:2px;
+}
+.icon-btn{
   appearance:none;
   border:none;
   background:transparent;
@@ -137,11 +147,17 @@ html,body{
   pointer-events:auto;
   transition:background 120ms ease, color 120ms ease;
 }
-.theme-toggle:hover{
+.icon-btn:hover{
   background:var(--overlay-weak);
   color:var(--text-primary);
 }
-.theme-toggle svg{
+/* the hotel toggle is the only one of these with an on/off state to show —
+   the theme button cycles through three and says which via its icon */
+.icon-btn[aria-pressed="true"]{
+  background:var(--overlay-strong);
+  color:var(--hotel);
+}
+.icon-btn svg{
   width:18px;
   height:18px;
   display:block;
@@ -398,6 +414,28 @@ html,body{
   opacity:0;
   transition:opacity 180ms ease;
 }
+.compass-labels{
+  position:fixed;
+  inset:0;
+  pointer-events:none;
+  z-index:3;
+}
+.compass-label{
+  position:absolute;
+  left:0;
+  top:0;
+  transform:translate(-50%,-50%);
+  font-family:"JBMono",monospace;
+  font-weight:600;
+  font-size:11px;
+  letter-spacing:0.05em;
+  color:var(--text-muted);
+  opacity:0;
+  transition:opacity 180ms ease;
+  will-change:transform,opacity;
+  user-select:none;
+}
+
 .col-labels{
   position:fixed;
   inset:0;
@@ -457,6 +495,26 @@ html,body{
   opacity:0;
   pointer-events:none;
   transition:opacity 180ms ease;
+}
+/* Hotels reuse .col-label wholesale — the same box, the same measurement,
+   the same hover/tap reveal, and so the same collision-avoidance placement
+   pass. Only the accent colour and the leading icon differ. Theming it
+   through CSS rather than the inline --label-color the day labels use means
+   it re-colours itself on a theme switch with no JS involved. */
+.col-label.hotel-label{
+  border-left-color:var(--hotel);
+}
+.col-label.hotel-label svg{
+  width:9px;
+  height:9px;
+  flex:none;
+  color:var(--hotel);
+  display:block;
+}
+/* the leader line stays the same neutral stroke as every other one; only
+   the anchor dot takes the hotel accent */
+.col-leader-lines circle.hotel-marker{
+  fill:var(--hotel);
 }
 .col-label.tap-active{
   /* raise the whole label (and its elevation pill along with it) above

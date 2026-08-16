@@ -48,6 +48,8 @@ src/
   vendor/three.min.js, vendor/OrbitControls.js
   app.js               the app itself
   data/route-data.js   window.ROUTE_DATA — see below for provenance
+  data/hotels.geojson  the eight overnight stops, plain WGS84 — editable source
+  data/hotel-data.js   window.HOTEL_DATA — generated from the .geojson, see below
 ```
 
 `src/index.html` is a normal multi-file page — every file loads with an
@@ -156,6 +158,37 @@ The first rewrites `src/data/route-data.js` and prints each col's
 chosen point, altitude, and error against its recorded elevation; the
 second folds it into `build/artifact/index.html` (and rebuilds
 `build/webserver.tgz`).
+
+## Where the hotel data comes from
+
+The eight overnight stops (nine hotels — night 2 is split between La
+Giettaz and Flumet) live in `src/data/hotels.geojson`, a plain WGS84
+FeatureCollection you can open in any GIS tool. Positions are
+OpenStreetMap hotel POIs where one exists, a street-number geocode
+where it doesn't (Flumet), or the hotel's own published map link (Le
+Génépy). Elevations are EU-DEM 25 m.
+
+`src/data/hotel-data.js` is generated from it, with each hotel
+pre-projected into the same local metre grid the route uses:
+
+```bash
+python3 tools/build_hotel_data.py
+./build.sh
+```
+
+Two files rather than one because the app cannot fetch a `.geojson` —
+the Artifact build is a single file under a strict CSP — so the data
+has to ship as a script assigning a global, the same as the route. The
+`.geojson` is the one to edit; `./build.sh` fails if the generated file
+has fallen out of step with it.
+
+The projection origin is recovered by fitting known col coordinates
+against the route points they were matched to, because the Strava
+stream files the original centroid came from aren't in this repo — see
+`tools/build_hotel_data.py`'s docstring for the numbers and the
+sanity checks. The strongest of those checks: eight of the nine hotels
+land within 110 m of the route, and each snaps to the correct day's
+start or end point.
 
 ## Rendering notes
 

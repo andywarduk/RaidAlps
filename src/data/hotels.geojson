@@ -1,0 +1,202 @@
+{
+  "type": "FeatureCollection",
+  "name": "RaidAlps overnight stops",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "urn:ogc:def:crs:OGC:1.3/CRS84"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.442626,
+          46.351902,
+          434.0
+        ]
+      },
+      "properties": {
+        "name": "Côté Sud Léman",
+        "town": "Thonon-les-Bains",
+        "date": "2026-07-25",
+        "night": 1,
+        "address": "6 Rue du Pamphiot, 74200 Thonon-les-Bains",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.495961,
+          45.862281,
+          1096.7
+        ]
+      },
+      "properties": {
+        "name": "Flor'Alpes",
+        "town": "La Giettaz",
+        "date": "2026-07-26",
+        "night": 2,
+        "address": "Route du Col des Aravis, 73590 La Giettaz",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.51439,
+          45.818081,
+          896.2
+        ]
+      },
+      "properties": {
+        "name": "Le MontBlanc",
+        "town": "Flumet",
+        "date": "2026-07-26",
+        "night": 2,
+        "address": "97 Rue du Mont Blanc, 73590 Flumet",
+        "source": "Nominatim address geocode (no OSM POI)",
+        "precision": "address",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.921241,
+          45.509303,
+          1599.5
+        ]
+      },
+      "properties": {
+        "name": "Le Génépy",
+        "town": "Tignes-les-Brévières",
+        "date": "2026-07-27",
+        "night": 3,
+        "address": "Montée des Hauts des Brévières, 73320 Tignes",
+        "source": "hotellegenepy.fr map link",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.42695,
+          45.165773,
+          1413.1
+        ]
+      },
+      "properties": {
+        "name": "Hôtel de la Poste",
+        "town": "Valloire",
+        "date": "2026-07-28",
+        "night": 4,
+        "address": "Rue des Grandes Alpes, 73450 Valloire",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.306748,
+          45.046087,
+          1498.0
+        ]
+      },
+      "properties": {
+        "name": "Auberge Edelweiss",
+        "town": "La Grave",
+        "date": "2026-07-29",
+        "night": 5,
+        "address": "Le Grand Chemin, Ventelon, 05320 La Grave",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          6.690073,
+          44.594729,
+          1657.3
+        ]
+      },
+      "properties": {
+        "name": "La Vieille Auberge",
+        "town": "Vars",
+        "date": "2026-07-30",
+        "night": 6,
+        "address": "265 Grand-Rue, Sainte-Marie, 05560 Vars",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          7.167585,
+          44.072243,
+          1010.2
+        ]
+      },
+      "properties": {
+        "name": "Hôtel de Valdeblore",
+        "town": "Valdeblore (La Bolline)",
+        "date": "2026-07-31",
+        "night": 7,
+        "address": "44 Rue Centrale, La Bolline, 06420 Valdeblore",
+        "source": "OpenStreetMap hotel POI",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [
+          7.214914,
+          43.667099,
+          11.0
+        ]
+      },
+      "properties": {
+        "name": "Campanile Nice Aéroport",
+        "town": "Nice",
+        "date": "2026-08-01",
+        "night": 8,
+        "address": "459-461 Promenade des Anglais, 06299 Nice",
+        "source": "OpenStreetMap hotel building",
+        "precision": "poi",
+        "ele_source": "EU-DEM 25 m (opentopodata)"
+      }
+    }
+  ],
+  "description": "Overnight stops on the Raid Alps route. Position is WGS84 lon/lat; the third coordinate is ground elevation in metres from EU-DEM 25 m. Source of truth for src/data/hotel-data.js — regenerate that with tools/build_hotel_data.py after editing."
+}

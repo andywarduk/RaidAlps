@@ -24,6 +24,7 @@
 <div id="scene-root"></div>
 <svg id="col-leader-lines" class="col-leader-lines"></svg>
 <div id="col-labels" class="col-labels"></div>
+<div id="compass-labels" class="compass-labels"></div>
 
 <div class="hud">
   <div class="hud-top">
@@ -34,7 +35,10 @@
     </div>
     <div class="hud-top-right">
       <div id="stat-rail" class="stat-rail"></div>
-      <button id="theme-toggle" class="theme-toggle" type="button" aria-label="Toggle theme"></button>
+      <div class="icon-btn-row">
+        <button id="hotel-toggle" class="icon-btn" type="button" aria-pressed="false" aria-label="Show hotels"></button>
+        <button id="theme-toggle" class="icon-btn" type="button" aria-label="Toggle theme"></button>
+      </div>
     </div>
   </div>
   <div id="hud-bottom" class="hud-bottom">
@@ -48,6 +52,7 @@
 <script src="vendor/three.min.js"></script>
 <script src="vendor/OrbitControls.js"></script>
 <script src="data/route-data.js"></script>
+<script src="data/hotel-data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
