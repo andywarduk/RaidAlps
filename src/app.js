@@ -211,10 +211,18 @@
   }
   function gridColors(){ return GRID_COLORS[effectiveTheme()]; }
 
+  // Opacity the grid rests at, and what the overview grid drops to while a
+  // day is focused and its own local grid takes over. One constant each
+  // rather than the literals repeated across makeGrid and the three
+  // fadeOpacity calls — they have to agree or the grid changes brightness
+  // on a transition that was only meant to move it.
+  var GRID_OPACITY = 0.5;
+  var GRID_DIM_OPACITY = 0.04;
+
   function makeGrid(size, divisions, colorA, colorB){
     var g = new THREE.GridHelper(size, divisions, colorA, colorB);
     g.material.transparent = true;
-    g.material.opacity = 0.35;
+    g.material.opacity = GRID_OPACITY;
     return g;
   }
 
@@ -480,7 +488,7 @@
   // This used to be anchored to the overview grid's fixed extent and centre
   // at all times, deliberately, so it would not jump on every focus/overview
   // transition. But a focused day's grid is a different size in a different
-  // place — the overview grid is still there, just dimmed to 0.04 — so the
+  // place — the overview grid is still there, just dimmed to GRID_DIM_OPACITY — so the
   // labels stayed way out at regional distances while the visible grid was
   // local, which is exactly what "floating in space" looks like. Following
   // the visible grid and tweening between the two over the same 950ms as
@@ -993,9 +1001,10 @@
     });
 
     // Local grid. The grid covers far more of the screen than the route does
-    // (~13,500px against ~1,200), so snapping the overview grid from 0.35 to
-    // 0.04 darkened most of the frame in a single step — the same
-    // snap-at-departure problem as the fog, exaggeration and tube radius.
+    // (~13,500px against ~1,200), so snapping the overview grid from
+    // GRID_OPACITY to GRID_DIM_OPACITY darkened most of the frame in a single
+    // step — the same snap-at-departure problem as the fog, exaggeration and
+    // tube radius.
     // Cross-faded over the flight instead.
     if (focusGrid) retireGrid(focusGrid, 950);
     focusGridParams = {
@@ -1006,8 +1015,8 @@
     focusGrid.position.set(focusGridParams.cx, 0, focusGridParams.cz);
     focusGrid.material.opacity = 0;
     scene.add(focusGrid);
-    fadeOpacity(focusGrid, 0, 0.35, 950);
-    fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.04, 950);
+    fadeOpacity(focusGrid, 0, GRID_OPACITY, 950);
+    fadeOpacity(overviewGrid, overviewGrid.material.opacity, GRID_DIM_OPACITY, 950);
     // the rose rides across to the incoming grid over the same 950ms, so it
     // arrives on the centre lines that are being faded up
     setCompassAnchor(focusGridParams.cx, focusGridParams.cz, focusGridParams.size/2, 950);
@@ -1054,7 +1063,7 @@
         null, swapDelay);
     });
     if (focusGrid){ retireGrid(focusGrid, 950); focusGrid = null; focusGridParams = null; }
-    fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.35, 950);
+    fadeOpacity(overviewGrid, overviewGrid.material.opacity, GRID_OPACITY, 950);
     setCompassAnchor(overviewGridCx, overviewGridCz, overviewGridSize/2, 950);
 
     overviewFrame = computeOverviewFrame();
