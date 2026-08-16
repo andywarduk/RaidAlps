@@ -88,6 +88,54 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   relative `url()` — `tools/build.py` (invoked via `./build.sh`) is what
   turns those into the base64 data URIs `build/artifact/index.html`
   actually ships.
+- **Icons** — all under `src/images/`, every one the route's elevation
+  profile as a single amber stroke. Five files, because browser tabs, iOS
+  home screens and Android launchers each want something different:
+  - `src/images/favicon.svg` — rounded square (`rx="7"`), for browser tabs. One
+    stroke by design: a filled massif behind it vanishes at 16px and a
+    multi-day colour gradient goes grey at that size (both tried, both
+    rejected on a side-by-side render at 16/20/32/64/128px).
+  - `src/images/apple-touch-icon.png` — 180×180, **full bleed square and fully
+    opaque**. iOS applies its own superellipse mask, so baked-in rounding
+    gets masked twice and any transparency composites to black. Generated
+    from `tools/icon-master.svg` (which lives in `tools/` rather than
+    `src/` because it isn't served) with:
+    ```bash
+    rsvg-convert -w 180 -h 180 tools/icon-master.svg -o src/images/apple-touch-icon.png
+    ```
+    Edit the master and re-run that, rather than editing the PNG.
+
+  - `src/images/icon-192.png`, `src/images/icon-512.png` — Android/Chrome install icons,
+    same full-bleed master, referenced from `src/site.webmanifest` with
+    `purpose: "any"`.
+  - `src/images/icon-maskable-512.png` — from `tools/icon-maskable.svg`, a
+    *separate* master. Android launchers crop maskable icons to arbitrary
+    shapes and only guarantee a centred circle of 80% diameter. The mark
+    reaches radius 93.4 against a safe radius of 72, so it would lose the
+    ends of the profile; the maskable master scales it to 0.75 about the
+    centre. Verified 0 amber pixels outside the safe circle.
+    ```bash
+    rsvg-convert -w 192 -h 192 tools/icon-master.svg   -o src/images/icon-192.png
+    rsvg-convert -w 512 -h 512 tools/icon-master.svg   -o src/images/icon-512.png
+    rsvg-convert -w 512 -h 512 tools/icon-maskable.svg -o src/images/icon-maskable-512.png
+    ```
+
+  **Every SVG here is XML, so no double hyphen anywhere, including inside
+  comments.** The first version of `favicon.svg` had `--bg` in a comment,
+  which made it malformed — and a malformed favicon fails *silently*: the
+  browser just declines to use it, with nothing in the console. Verify a
+  change by decoding the icon through an `Image()`, not by eyeballing that
+  the `<link>` is present.
+
+  All of it is linked from `src/index.html` for the two file-serving
+  targets (Pages, webserver tarball), which keep a real `<head>`.
+  `tools/build.py` strips **every** icon and manifest link from the
+  Artifact bundle: that bundle is a single file under a strict CSP so it
+  could not fetch them anyway, and the Artifact tool sets its own favicon
+  (🚵) which a second icon declaration would compete with. If you add
+  another `<link>` to `src/index.html`, decide which of the three targets
+  it is for and add a matching strip rule, or the bundle breaks its
+  self-contained invariant.
 - `src/vendor/three.min.js`, `src/vendor/OrbitControls.js`: vendored,
   not app code — don't try to read or edit these.
 - `src/data/route-data.js`: sets `window.ROUTE_DATA = {...}`, the embedded
@@ -105,6 +153,20 @@ Rough landmarks (search for these, don't trust line numbers — they drift):
   `updateColLabelScreenPositions`), HUD wiring (stat rail, chip rail,
   detail card), focus/overview transitions (`focusLeg`, `goOverview`), the
   `animate()` render loop, and `onViewportChange()` at the end.
+
+## Device pixel ratio
+
+`renderer.setPixelRatio(window.devicePixelRatio||1)` — **uncapped**, in two
+places (initial setup and `onViewportChange`). Keep them in sync.
+
+It used to be `Math.min(devicePixelRatio, 2)`, which cost real sharpness on
+3× phones — most iPhone Pro models — where the route is thin lines and
+softening shows most. Uncapping renders at native resolution, at 2.25× the
+fragments of a 2× cap: on a 611×877 viewport that is 4.82 MP against 2.14.
+If it ever needs to come back, put the cap back rather than inventing a new
+scheme, and note that measuring this properly needs a real device — a
+`renderer.render()` loop only times CPU-side command submission, not the
+GPU fill cost that actually matters here.
 
 ## Responsive layout
 

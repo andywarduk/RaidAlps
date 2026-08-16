@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180">
+  <title>Raid Alps app icon</title>
+  <!-- Master for the three "any purpose" raster icons. Same mark as
+       src/images/favicon.svg but deliberately NOT the same geometry:
+       1. Full bleed square, no rounded corners. iOS applies its own
+          superellipse mask; baking rounding in gets it masked twice, and the
+          transparent corners left outside our own radius composite to black.
+       2. Fully opaque. iOS does not honour transparency here.
+       Regenerate all three after editing this file:
+         rsvg-convert -w 180 -h 180 tools/icon-master.svg -o src/images/apple-touch-icon.png
+         rsvg-convert -w 192 -h 192 tools/icon-master.svg -o src/images/icon-192.png
+         rsvg-convert -w 512 -h 512 tools/icon-master.svg -o src/images/icon-512.png
+       tools/icon-maskable.svg is a separate master for the maskable variant,
+       which needs the mark inset to survive Android's crop.
+       Geometry is favicon.svg's 32 unit grid scaled by 5.625.
+       NB: no double hyphens in XML comments. -->
+  <rect width="180" height="180" fill="#0b0f14"/>
+  <path d="M22.5 140.625 L61.875 84.375 L84.375 106.875 L118.125 39.375 L157.5 140.625"
+        fill="none" stroke="#c98500" stroke-width="18"
+        stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32">
+  <title>Raid Alps</title>
+  <!-- The route's own elevation profile, which is what the app draws. Kept to
+       a single stroke with round joins because it has to survive 16px in a
+       tab strip: a filled massif behind it disappears at that size, and a
+       multi-day colour gradient turns to grey mush. Colours are the bg and
+       day-4 custom properties from src/style.css.
+       NB: no double hyphens anywhere in this comment. XML forbids them, and
+       an SVG that fails to parse is silently rejected by the browser as a
+       favicon rather than erroring visibly. -->
+  <rect width="32" height="32" rx="7" fill="#0b0f14"/>
+  <path d="M4 25 L11 15 L15 19 L21 7 L28 25" fill="none" stroke="#c98500"
+        stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

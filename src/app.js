@@ -127,7 +127,7 @@
   var camera = new THREE.PerspectiveCamera(42, vpW()/vpH(), 5, 4000000);
 
   var renderer = new THREE.WebGLRenderer({ antialias:true, powerPreference:"high-performance" });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+  renderer.setPixelRatio(window.devicePixelRatio||1);
   renderer.setSize(vpW(), vpH());
   container.appendChild(renderer.domElement);
 
@@ -1115,7 +1115,7 @@
   function onViewportChange(){
     var w = vpW(), h = vpH();
     camera.aspect = w / h;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio||1, 2));
+    renderer.setPixelRatio(window.devicePixelRatio||1);
     renderer.setSize(w, h);
     camera.updateProjectionMatrix();
 

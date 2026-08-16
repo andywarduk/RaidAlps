@@ -77,6 +77,17 @@ def main():
     app_js = read("app.js").rstrip("\n")
 
     replacements = [
+        # src/favicon.svg is a real file, served as such by GitHub Pages and
+        # by the webserver tarball (both of which keep a real <head>). The
+        # Artifact build drops the link instead of inlining it as a data URI:
+        # the Artifact tool supplies its own favicon via its `favicon:`
+        # parameter (🚵, documented in AGENTS.md as never changing), and a
+        # second icon declaration in the bundle would be competing with it.
+        ('<link rel="icon" type="image/svg+xml" href="images/favicon.svg">\n', ""),
+        ('<link rel="apple-touch-icon" href="images/apple-touch-icon.png">\n', ""),
+        # the manifest and its icons are separate files the Artifact bundle
+        # cannot fetch (single file, strict CSP), so drop the link there too
+        ('<link rel="manifest" href="site.webmanifest">\n', ""),
         ('<link rel="stylesheet" href="style.css">', f"<style>\n{css}</style>"),
         ('<script src="vendor/three.min.js"></script>', f"<script>\n{three_js}\n</script>"),
         ('<script src="vendor/OrbitControls.js"></script>', f"<script>\n{orbit_js}\n</script>"),
@@ -107,8 +118,14 @@ def webserver_tgz(out_path):
     out_path.parent.mkdir(parents=True, exist_ok=True)
     with tarfile.open(out_path, "w:gz") as tar:
         for file in sorted(SRC.rglob("*")):
-            if file.is_file():
-                tar.add(file, arcname=file.relative_to(SRC))
+            if not file.is_file():
+                continue
+            # Skip dotfiles. rglob picks them up, so a scratch probe left in
+            # src/ (.probe.html and friends are a handy debugging pattern here)
+            # would otherwise be silently tarred up and shipped.
+            if any(part.startswith(".") for part in file.relative_to(SRC).parts):
+                continue
+            tar.add(file, arcname=file.relative_to(SRC))
     print(f"wrote {out_path} ({out_path.stat().st_size:,} bytes)")
 
 
