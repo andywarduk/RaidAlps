@@ -4,6 +4,16 @@
 <meta charset="utf-8">
 <title>Raid Alps</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<script>
+// set before style.css is fetched so an explicit theme choice never flashes
+// the system default first
+(function(){
+  try{
+    var t = localStorage.getItem("raidalps-theme");
+    if (t === "light" || t === "dark") document.documentElement.setAttribute("data-theme", t);
+  }catch(e){}
+})();
+</script>
 <link rel="icon" type="image/svg+xml" href="images/favicon.svg">
 <link rel="apple-touch-icon" href="images/apple-touch-icon.png">
 <link rel="manifest" href="site.webmanifest">
@@ -22,7 +32,14 @@
       <h1 class="title">Raid Alps</h1>
       <p class="sub">Seven climbing days across the French Alps &mdash; from Thonon-les-Bains to Nice &mdash; 26 named cols and 16,106&nbsp;m of climbing in one week.</p>
     </div>
-    <div id="stat-rail" class="stat-rail"></div>
+    <div class="hud-top-right">
+      <div id="theme-toggle" class="chip-rail theme-toggle" role="group" aria-label="Theme">
+        <button class="chip" data-theme-choice="system">Auto</button>
+        <button class="chip" data-theme-choice="dark">Dark</button>
+        <button class="chip" data-theme-choice="light">Light</button>
+      </div>
+      <div id="stat-rail" class="stat-rail"></div>
+    </div>
   </div>
   <div id="hud-bottom" class="hud-bottom">
     <div id="detail-card" class="detail-card"></div>

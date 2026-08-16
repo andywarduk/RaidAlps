@@ -197,6 +197,20 @@
   fillLight.position.set(-1, 0.6, -0.8);
   scene.add(fillLight);
 
+  // GridHelper bakes colorA/colorB as per-vertex geometry attributes, not a
+  // material uniform, so retheming means disposing and rebuilding the mesh
+  // rather than updating a color in place — see applyThemeToScene() below.
+  var GRID_COLORS = {
+    dark:  { ovA:0x3d5570, ovB:0x263a4d, fA:0x46607c, fB:0x2c4055 },
+    light: { ovA:0x5b7086, ovB:0x9fb0c2, fA:0x4a6178, fB:0x8ea2b6 }
+  };
+  function effectiveTheme(){
+    var explicit = document.documentElement.getAttribute("data-theme");
+    if (explicit === "light" || explicit === "dark") return explicit;
+    return (window.matchMedia && window.matchMedia("(prefers-color-scheme: light)").matches) ? "light" : "dark";
+  }
+  function gridColors(){ return GRID_COLORS[effectiveTheme()]; }
+
   function makeGrid(size, divisions, colorA, colorB){
     var g = new THREE.GridHelper(size, divisions, colorA, colorB);
     g.material.transparent = true;
@@ -204,16 +218,48 @@
     return g;
   }
 
-  var overviewGrid = makeGrid(
-    Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) * 1.35,
-    36, 0x3d5570, 0x263a4d
-  );
-  overviewGrid.position.set(
-    (OVERVIEW_BBOX.minx+OVERVIEW_BBOX.maxx)/2, 0, (OVERVIEW_BBOX.minz+OVERVIEW_BBOX.maxz)/2
-  );
+  var overviewGridSize = Math.max(OVERVIEW_BBOX.maxx-OVERVIEW_BBOX.minx, OVERVIEW_BBOX.maxz-OVERVIEW_BBOX.minz) * 1.35;
+  var overviewGridCx = (OVERVIEW_BBOX.minx+OVERVIEW_BBOX.maxx)/2;
+  var overviewGridCz = (OVERVIEW_BBOX.minz+OVERVIEW_BBOX.maxz)/2;
+  var overviewGrid = makeGrid(overviewGridSize, 36, gridColors().ovA, gridColors().ovB);
+  overviewGrid.position.set(overviewGridCx, 0, overviewGridCz);
   scene.add(overviewGrid);
 
   var focusGrid = null;
+  var focusGridParams = null;
+
+  // Live-updates scene.background/fog (simple THREE.Color objects) and
+  // rebuilds both grids at the current theme's colors, preserving each
+  // grid's current opacity/position. Called on every theme change, not just
+  // at load — see the theme-toggle wiring near the end of this file.
+  function applyThemeToScene(){
+    bgColor.set(cssVar("--bg"));
+    scene.fog.color.copy(bgColor);
+
+    var gc = gridColors();
+
+    var ovOpacity = overviewGrid.material.opacity;
+    scene.remove(overviewGrid);
+    overviewGrid.geometry.dispose();
+    overviewGrid.material.dispose();
+    overviewGrid = makeGrid(overviewGridSize, 36, gc.ovA, gc.ovB);
+    overviewGrid.position.set(overviewGridCx, 0, overviewGridCz);
+    overviewGrid.material.opacity = ovOpacity;
+    scene.add(overviewGrid);
+
+    if (focusGrid && focusGridParams){
+      var fOpacity = focusGrid.material.opacity;
+      scene.remove(focusGrid);
+      focusGrid.geometry.dispose();
+      focusGrid.material.dispose();
+      focusGrid = makeGrid(focusGridParams.size, 24, gc.fA, gc.fB);
+      focusGrid.position.set(focusGridParams.cx, 0, focusGridParams.cz);
+      focusGrid.material.opacity = fOpacity;
+      scene.add(focusGrid);
+    }
+
+    requestRender();
+  }
 
   // ---- build leg meshes ------------------------------------------------------
   var legGroups = {};
@@ -737,8 +783,12 @@
     // snap-at-departure problem as the fog, exaggeration and tube radius.
     // Cross-faded over the flight instead.
     if (focusGrid) retireGrid(focusGrid, 950);
-    focusGrid = makeGrid(Math.max(b.maxx-b.minx, b.maxz-b.minz)*1.5, 24, 0x46607c, 0x2c4055);
-    focusGrid.position.set((b.minx+b.maxx)/2, 0, (b.minz+b.maxz)/2);
+    focusGridParams = {
+      size: Math.max(b.maxx-b.minx, b.maxz-b.minz)*1.5,
+      cx: (b.minx+b.maxx)/2, cz: (b.minz+b.maxz)/2
+    };
+    focusGrid = makeGrid(focusGridParams.size, 24, gridColors().fA, gridColors().fB);
+    focusGrid.position.set(focusGridParams.cx, 0, focusGridParams.cz);
     focusGrid.material.opacity = 0;
     scene.add(focusGrid);
     fadeOpacity(focusGrid, 0, 0.35, 950);
@@ -785,7 +835,7 @@
       fadeOpacity(legGroups[leg.id].group, currentOpacity(legGroups[leg.id].group), 1, GEO_CROSSFADE_MS,
         null, swapDelay);
     });
-    if (focusGrid){ retireGrid(focusGrid, 950); focusGrid = null; }
+    if (focusGrid){ retireGrid(focusGrid, 950); focusGrid = null; focusGridParams = null; }
     fadeOpacity(overviewGrid, overviewGrid.material.opacity, 0.35, 950);
 
     overviewFrame = computeOverviewFrame();
@@ -1229,6 +1279,50 @@
   // to strand the camera at NaN
   if (window.ResizeObserver){
     new ResizeObserver(onViewportChange).observe(container);
+  }
+
+  // ---- theme toggle --------------------------------------------------------
+  // index.html's inline head script already set data-theme (if an explicit
+  // choice was stored) before style.css was even fetched, so the CSS side is
+  // already correct by the time this runs — this just wires up the buttons
+  // and keeps the Three.js scene (bg/fog/grids) in sync with future changes.
+  var THEME_KEY = "raidalps-theme";
+  var themeToggle = document.getElementById("theme-toggle");
+  var themeButtons = themeToggle ? Array.prototype.slice.call(themeToggle.querySelectorAll("[data-theme-choice]")) : [];
+
+  function storedTheme(){
+    try { return localStorage.getItem(THEME_KEY); } catch(e){ return null; }
+  }
+  function setStoredTheme(choice){
+    try {
+      if (choice === "system") localStorage.removeItem(THEME_KEY);
+      else localStorage.setItem(THEME_KEY, choice);
+    } catch(e){}
+  }
+  function updateThemeButtons(){
+    var choice = storedTheme() || "system";
+    themeButtons.forEach(function(b){
+      b.classList.toggle("active", b.getAttribute("data-theme-choice") === choice);
+    });
+  }
+  function selectTheme(choice){
+    setStoredTheme(choice);
+    if (choice === "light" || choice === "dark") document.documentElement.setAttribute("data-theme", choice);
+    else document.documentElement.removeAttribute("data-theme");
+    updateThemeButtons();
+    applyThemeToScene();
+  }
+  themeButtons.forEach(function(btn){
+    btn.addEventListener("click", function(){ selectTheme(btn.getAttribute("data-theme-choice")); });
+  });
+  updateThemeButtons();
+
+  // only live-updates while "system" is in effect — an explicit choice
+  // already overrides the media query in CSS and shouldn't react to it
+  if (window.matchMedia){
+    window.matchMedia("(prefers-color-scheme: light)").addEventListener("change", function(){
+      if (!storedTheme()) applyThemeToScene();
+    });
   }
 
   // ---- init note ---------------------------------------------------------

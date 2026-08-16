@@ -1,4 +1,5 @@
 :root{
+  color-scheme:light dark;
   --bg:#0b0f14;
   --panel:rgba(16,22,29,0.82);
   --panel-solid:#10161d;
@@ -7,6 +8,8 @@
   --text-primary:#edf2f6;
   --text-secondary:#93a6b8;
   --text-muted:#55677a;
+  --overlay-weak:rgba(255,255,255,0.05);
+  --overlay-strong:rgba(255,255,255,0.08);
   --day-1:#3987e5;
   --day-2:#d95926;
   --day-3:#199e70;
@@ -14,6 +17,41 @@
   --day-5:#d55181;
   --day-6:#008300;
   --day-7:#9085e9;
+}
+
+/* light palette: applies automatically when the OS is in light mode (unless
+   an explicit "dark" choice overrides it), and unconditionally under an
+   explicit data-theme="light" choice — the pair of rules is what lets a
+   manual pick win over system preference in both directions */
+@media (prefers-color-scheme:light){
+  :root:not([data-theme="dark"]){
+    --bg:#f4f6f8;
+    --panel:rgba(255,255,255,0.72);
+    --panel-solid:#ffffff;
+    --hairline:rgba(0,0,0,0.09);
+    --hairline-strong:rgba(0,0,0,0.16);
+    --text-primary:#12181f;
+    --text-secondary:#4b5c6d;
+    --text-muted:#8494a3;
+    --overlay-weak:rgba(0,0,0,0.05);
+    --overlay-strong:rgba(0,0,0,0.08);
+  }
+}
+:root[data-theme="light"]{
+  --bg:#f4f6f8;
+  --panel:rgba(255,255,255,0.72);
+  --panel-solid:#ffffff;
+  --hairline:rgba(0,0,0,0.09);
+  --hairline-strong:rgba(0,0,0,0.16);
+  --text-primary:#12181f;
+  --text-secondary:#4b5c6d;
+  --text-muted:#8494a3;
+  --overlay-weak:rgba(0,0,0,0.05);
+  --overlay-strong:rgba(0,0,0,0.08);
+  color-scheme:light;
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
 }
 
 @font-face{
@@ -49,10 +87,6 @@ html,body{
   overflow:hidden;
   font-family:"JBMono", ui-monospace, monospace;
 }
-body{
-  color-scheme:dark;
-}
-
 #scene-root{
   position:fixed;
   inset:0;
@@ -80,6 +114,21 @@ body{
   justify-content:space-between;
   align-items:flex-start;
   gap:16px;
+}
+
+.hud-top-right{
+  display:flex;
+  flex-direction:column;
+  align-items:flex-end;
+  gap:8px;
+}
+
+.theme-toggle{
+  align-self:flex-end;
+}
+.theme-toggle .chip{
+  padding:6px 10px;
+  font-size:10px;
 }
 
 .masthead{
@@ -285,11 +334,11 @@ body{
 }
 .chip:last-child{border-right:none;}
 .chip:hover{
-  background:rgba(255,255,255,0.05);
+  background:var(--overlay-weak);
   color:var(--text-primary);
 }
 .chip.active{
-  background:rgba(255,255,255,0.08);
+  background:var(--overlay-strong);
   color:var(--text-primary);
 }
 .chip .dot{
